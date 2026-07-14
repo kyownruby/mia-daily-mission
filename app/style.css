@@ -98,8 +98,8 @@ body {
    n に重ねず、右上に離して浮かせる配置 */
 .dailyn-logo__badge {
   position: absolute;
-  top: -1.6em;
-  right: -2.6em;
+  top: -1.0em;
+  right: -2.0em;
   font-family: 'Nunito', sans-serif;
   font-weight: 800;
   color: #ffffff;
@@ -112,11 +112,11 @@ body {
 
 /* サイズ違い：ヘッダー用（小さめ）
    padding はバッジのはみ出しぶんの余白（上と右） */
-.dailyn-logo--sm { font-size: 24px; padding: 10px 30px 0 0; }
+.dailyn-logo--sm { font-size: 24px; padding: 8px 24px 0 0; }
 .dailyn-logo--sm .dailyn-logo__badge { font-size: 10px; }
 
 /* サイズ違い：ログイン用（大きめ） */
-.dailyn-logo--lg { font-size: 48px; padding: 16px 46px 0 0; }
+.dailyn-logo--lg { font-size: 48px; padding: 12px 36px 0 0; }
 .dailyn-logo--lg .dailyn-logo__badge { font-size: 15px; }
 
 /* タグライン */

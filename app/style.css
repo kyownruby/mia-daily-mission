@@ -77,6 +77,65 @@ body {
   color: transparent;
 }
 
+/* ===== Dailyn ロゴ ===== */
+.dailyn-logo {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  display: inline-flex;
+  align-items: baseline;
+  line-height: 1;
+  color: #ffffff; /* 暗い背景前提。明るい背景に置くならベース文字は #1a1a2e などに */
+}
+
+/* "n" 部分（ピンク＆バッジの基準位置） */
+.dailyn-logo__n {
+  position: relative;
+  color: #D4537E;
+}
+
+/* n の右上のカウンター風バッジ（×10 は装飾の固定表示） */
+.dailyn-logo__badge {
+  position: absolute;
+  top: -0.35em;
+  right: -1.4em;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  color: #ffffff;
+  background: #D4537E;
+  border-radius: 8px;
+  padding: 1px 6px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* サイズ違い：ヘッダー用（小さめ） */
+.dailyn-logo--sm { font-size: 24px; }
+.dailyn-logo--sm .dailyn-logo__badge { font-size: 10px; }
+
+/* サイズ違い：ログイン用（大きめ） */
+.dailyn-logo--lg { font-size: 48px; }
+.dailyn-logo--lg .dailyn-logo__badge { font-size: 15px; }
+
+/* タグライン */
+.dailyn-tagline {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 600;
+  color: rgba(255,255,255,0.7);
+  font-size: 14px;
+  margin-top: 12px;
+  text-align: center;
+}
+
+/* ログイン画面でロゴを中央寄せ（バッジぶん少し左右に余白を取る） */
+.logo-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-right: 12px;
+}
+
 /* ===== ログイン画面 ===== */
 #auth-view, #setup-notice {
   display: flex;

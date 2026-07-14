@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>デイリーミッション</title>
+  <title>Dailyn</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -23,8 +26,13 @@
   <!-- ===== ログイン画面 ===== -->
   <div id="auth-view" class="view hidden">
     <div class="card auth-card">
-      <h1 class="app-title">⚔️ デイリーミッション</h1>
-      <p class="app-subtitle">タスクをこなして、レベルを上げよう！</p>
+      <div class="logo-center">
+        <div class="dailyn-logo dailyn-logo--lg">
+          <span class="dailyn-logo__base">Daily</span>
+          <span class="dailyn-logo__n">n<span class="dailyn-logo__badge">×10</span></span>
+        </div>
+        <p class="dailyn-tagline">数えて、貯めて、レベルアップ</p>
+      </div>
 
       <button id="google-login-btn" class="btn btn-google">
         <span class="g-icon">G</span> Googleでログイン
@@ -55,7 +63,10 @@
   <div id="app-view" class="view hidden">
     <header class="app-header">
       <div class="header-left">
-        <span class="header-title">⚔️ デイリーミッション</span>
+        <div class="dailyn-logo dailyn-logo--sm">
+          <span class="dailyn-logo__base">Daily</span>
+          <span class="dailyn-logo__n">n<span class="dailyn-logo__badge">×10</span></span>
+        </div>
       </div>
       <div class="header-right">
         <span id="sync-status" class="sync-status">同期中…</span>

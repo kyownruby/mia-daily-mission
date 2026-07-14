@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>デイリーミッション</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ===== 設定未完了の案内 ===== -->
+  <div id="setup-notice" class="view hidden">
+    <div class="card">
+      <h1>🔧 セットアップが必要です</h1>
+      <p>
+        <code>app/firebase-config.js</code> に Firebase プロジェクトの設定値（firebaseConfig）を
+        貼り付けてください。
+      </p>
+      <p>手順の詳細は <code>app/README.md</code> を参照してください。</p>
+    </div>
+  </div>
+
+  <!-- ===== ログイン画面 ===== -->
+  <div id="auth-view" class="view hidden">
+    <div class="card auth-card">
+      <h1 class="app-title">⚔️ デイリーミッション</h1>
+      <p class="app-subtitle">タスクをこなして、レベルを上げよう！</p>
+
+      <button id="google-login-btn" class="btn btn-google">
+        <span class="g-icon">G</span> Googleでログイン
+      </button>
+
+      <div class="divider"><span>または</span></div>
+
+      <div class="auth-form">
+        <input type="email" id="email-input" placeholder="メールアドレス" autocomplete="email">
+        <input type="password" id="password-input" placeholder="パスワード（6文字以上）" autocomplete="current-password">
+        <button id="email-submit-btn" class="btn btn-primary">ログイン</button>
+      </div>
+
+      <p class="auth-switch">
+        <span id="auth-switch-label">アカウントをお持ちでない方は</span>
+        <a href="#" id="auth-switch-link">新規登録</a>
+      </p>
+      <p class="auth-switch">
+        <a href="#" id="password-reset-link">パスワードを忘れた方はこちら</a>
+      </p>
+
+      <p id="auth-error" class="auth-error hidden"></p>
+      <p id="auth-info" class="auth-info hidden"></p>
+    </div>
+  </div>
+
+  <!-- ===== メイン画面 ===== -->
+  <div id="app-view" class="view hidden">
+    <header class="app-header">
+      <div class="header-left">
+        <span class="header-title">⚔️ デイリーミッション</span>
+      </div>
+      <div class="header-right">
+        <span id="sync-status" class="sync-status">同期中…</span>
+        <span id="user-label" class="user-label"></span>
+        <button id="logout-btn" class="btn btn-small btn-ghost">ログアウト</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- ステータスエリア -->
+      <section class="card status-card">
+        <div class="level-row">
+          <div class="level-badge">
+            <span class="level-label">Lv.</span>
+            <span id="level-value" class="level-value">1</span>
+          </div>
+          <div class="exp-block">
+            <div class="bar-header">
+              <span>EXP</span>
+              <span id="exp-text">0 / 50（累積 0 EXP）</span>
+            </div>
+            <div class="bar exp-bar"><div id="exp-bar-fill" class="bar-fill exp-fill"></div></div>
+          </div>
+        </div>
+        <div class="pt-block">
+          <div class="bar-header">
+            <span>本日のPt</span>
+            <span id="pt-text">0 / 100 Pt</span>
+          </div>
+          <div class="bar pt-bar">
+            <div id="pt-bar-fill" class="bar-fill pt-fill"></div>
+            <div class="pt-ticks">
+              <span class="tick" style="left:25%"></span>
+              <span class="tick" style="left:50%"></span>
+              <span class="tick" style="left:75%"></span>
+            </div>
+          </div>
+          <p id="daily-bonus-msg" class="daily-bonus-msg hidden">🎉 デイリー上限達成！ボーナスEXPゲット！</p>
+        </div>
+      </section>
+
+      <!-- タスク一覧 -->
+      <section class="card">
+        <h2 class="section-title">📋 本日のミッション</h2>
+        <ul id="task-list" class="task-list"></ul>
+        <p id="task-empty" class="task-empty hidden">まだミッションがないよ。下のフォームから追加してね！</p>
+      </section>
+
+      <!-- タスク追加・編集 -->
+      <section class="card">
+        <h2 class="section-title" id="form-title">➕ ミッションを追加</h2>
+        <div class="task-form">
+          <input type="text" id="task-name-input" placeholder="タスク名（例：朝の掃除）" maxlength="50">
+          <select id="task-pt-select"></select>
+          <div class="form-buttons">
+            <button id="task-save-btn" class="btn btn-primary">追加</button>
+            <button id="task-cancel-btn" class="btn btn-ghost hidden">キャンセル</button>
+          </div>
+        </div>
+        <p id="form-error" class="auth-error hidden"></p>
+      </section>
+    </main>
+  </div>
+
+  <!-- レベルアップ演出 -->
+  <div id="levelup-overlay" class="levelup-overlay hidden">
+    <div class="levelup-box">
+      <div class="levelup-title">LEVEL UP!</div>
+      <div class="levelup-level">Lv. <span id="levelup-value"></span></div>
+    </div>
+  </div>
+
+  <!-- トースト -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- 設定チェックはCDNに依存させない（未設定でも必ず案内を出すため） -->
+  <script type="module">
+    import { firebaseConfig } from "./firebase-config.js";
+    if (!firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith("YOUR_")) {
+      document.getElementById("setup-notice").classList.remove("hidden");
+    }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

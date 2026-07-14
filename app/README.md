@@ -1,0 +1,76 @@
+# デイリーミッション型タスク管理アプリ（Firebase対応版）
+
+ゲームの「デイリーミッション」をモチーフにした、タスク管理Webアプリです。
+タスクを達成してPtを貯めると経験値（EXP）が入り、アカウントのレベルが上がります。
+進捗は Cloud Firestore に保存され、同じアカウントでログインすれば複数デバイスで共有できます。
+
+## ファイル構成
+
+| ファイル | 役割 |
+| --- | --- |
+| `index.html` | 画面（ログイン画面・メイン画面） |
+| `style.css` | スタイル・進捗バー・レベルアップ演出 |
+| `app.js` | 認証・Firestore同期・Pt/EXP/レベルのロジック |
+| `firebase-config.js` | Firebase の設定値（**要書き換え**） |
+| `firestore.rules` | Firestore セキュリティルール（コンソールに貼り付け） |
+
+## セットアップ手順
+
+### 1. Firebase プロジェクトを作成
+
+1. [Firebase コンソール](https://console.firebase.google.com/) で「プロジェクトを追加」
+2. プロジェクト作成後、「ウェブアプリを追加（`</>` アイコン）」でWebアプリを登録
+3. 表示される `firebaseConfig` の値を `firebase-config.js` に貼り付ける
+
+### 2. Authentication を有効化
+
+1. コンソールの「構築 > Authentication > ログイン方法」を開く
+2. 以下の2つのプロバイダを有効にする：
+   - **Google**
+   - **メール / パスワード**
+
+### 3. Cloud Firestore を有効化
+
+1. コンソールの「構築 > Firestore Database」で「データベースを作成」
+2. 本番環境モードで作成（ロケーションは `asia-northeast1` など）
+3. 「ルール」タブに `firestore.rules` の内容を貼り付けて公開
+
+### 4. 動作確認（ローカル）
+
+このフォルダを静的サーバーで配信します（ESモジュールを使うため `file://` 直接開きは不可）：
+
+```bash
+cd app
+python3 -m http.server 8000
+# → http://localhost:8000 を開く
+```
+
+※ Googleログインを使う場合、Firebase コンソールの
+「Authentication > 設定 > 承認済みドメイン」に `localhost` が含まれていることを確認してください
+（デフォルトで含まれています）。
+
+### 5. 公開（任意）
+
+Firebase Hosting / Vercel / Netlify / GitHub Pages など、静的ホスティングにこのフォルダを配置すればOKです。
+公開ドメインを「承認済みドメイン」に追加するのを忘れずに。
+
+## 遊び方
+
+1. Google または メール&パスワードでログイン
+2. ミッション（タスク）を追加（報酬Ptは5Pt単位・最大100Pt）
+3. タスクを完了すると本日のPtが貯まる（1日上限100Pt・超過は切り捨て）
+4. 本日のPtが 25/50/75/100 に達するごとに 10EXP、100Pt達成でさらにボーナス +20EXP
+5. EXPが貯まるとレベルアップ！（完了を取り消すとPt・EXP・レベルも巻き戻ります）
+6. 日付（Asia/Tokyo基準）が変わると、完了状態と本日のPtはリセット。タスクとレベルはそのまま
+
+## 調整できる定数（app.js 冒頭）
+
+| 定数 | 意味 | デフォルト |
+| --- | --- | --- |
+| `dailyPtCap` | 1日のPt上限 | 100 |
+| `ptStep` | タスクPtの設定単位 | 5 |
+| `expPerStep` | 25Ptごとの獲得EXP | 10 |
+| `stepPt` | EXP付与のPt区切り | 25 |
+| `dailyBonusExp` | 100Pt達成ボーナスEXP | 20 |
+| `LEVEL_TABLE` | レベルごとの必要EXP（最後の値を以降繰り返し） | 50, 80, 120, ... |
+| `BASE_TIMEZONE` | 日次リセットの基準タイムゾーン | Asia/Tokyo |

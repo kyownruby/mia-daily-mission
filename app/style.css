@@ -1,0 +1,312 @@
+/* ===== デイリーミッション スタイル ===== */
+
+:root {
+  --bg: #1b1e2e;
+  --bg-card: #262b40;
+  --bg-input: #1f2336;
+  --text: #eef0f8;
+  --text-dim: #9aa0b8;
+  --accent: #7c8cff;
+  --accent-strong: #5a6cf0;
+  --pink: #ff8fb8;
+  --gold: #ffd166;
+  --green: #6fe3a5;
+  --red: #ff7b7b;
+  --border: #363c58;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.hidden { display: none !important; }
+
+.view { min-height: 100vh; }
+
+/* ===== カード共通 ===== */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.container {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* ===== ボタン ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text);
+  background: var(--bg-input);
+  transition: transform 0.08s ease, filter 0.15s ease;
+}
+.btn:hover { filter: brightness(1.15); }
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary { background: var(--accent-strong); }
+.btn-google { background: #fff; color: #333; width: 100%; }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
+.btn-small { padding: 6px 10px; font-size: 13px; }
+
+.g-icon {
+  font-weight: 800;
+  background: linear-gradient(135deg, #4285f4, #ea4335, #fbbc05, #34a853);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ===== ログイン画面 ===== */
+#auth-view, #setup-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+#auth-view.hidden, #setup-notice.hidden { display: none !important; }
+
+.auth-card { width: 100%; max-width: 400px; }
+
+.app-title { font-size: 24px; text-align: center; margin-bottom: 4px; }
+.app-subtitle { text-align: center; color: var(--text-dim); font-size: 13px; margin-bottom: 20px; }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  margin: 16px 0;
+}
+.divider::before, .divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-form { display: flex; flex-direction: column; gap: 10px; }
+
+input, select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 15px;
+  outline: none;
+}
+input:focus, select:focus { border-color: var(--accent); }
+
+.auth-switch { text-align: center; font-size: 13px; color: var(--text-dim); margin-top: 12px; }
+.auth-switch a { color: var(--accent); text-decoration: none; }
+
+.auth-error { color: var(--red); font-size: 13px; margin-top: 12px; text-align: center; }
+.auth-info { color: var(--green); font-size: 13px; margin-top: 12px; text-align: center; }
+
+/* ===== ヘッダー ===== */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.header-title { font-weight: 700; }
+.header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.user-label { font-size: 12px; color: var(--text-dim); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.sync-status {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.sync-status.saved { color: var(--green); border-color: var(--green); }
+.sync-status.syncing { color: var(--gold); border-color: var(--gold); }
+.sync-status.offline { color: var(--red); border-color: var(--red); }
+
+/* ===== ステータスエリア ===== */
+.level-row { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+
+.level-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 25%, #8a97ff, var(--accent-strong));
+  box-shadow: 0 0 18px rgba(124, 140, 255, 0.45);
+}
+.level-label { font-size: 11px; opacity: 0.85; }
+.level-value { font-size: 26px; font-weight: 800; line-height: 1; }
+
+.exp-block, .pt-block { flex: 1; }
+
+.bar-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.bar {
+  position: relative;
+  height: 14px;
+  background: var(--bg-input);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+.exp-fill { background: linear-gradient(90deg, #7c8cff, #b48cff); }
+.pt-fill { background: linear-gradient(90deg, #ffb35c, var(--gold)); }
+
+.pt-ticks .tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.daily-bonus-msg { margin-top: 8px; font-size: 13px; color: var(--gold); }
+
+/* ===== タスク一覧 ===== */
+.section-title { font-size: 16px; margin-bottom: 12px; }
+
+.task-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.task-item.completed {
+  opacity: 0.65;
+  border-color: var(--green);
+  background: rgba(111, 227, 165, 0.08);
+}
+.task-item.completed .task-name { text-decoration: line-through; color: var(--text-dim); }
+
+.task-name { flex: 1; font-size: 15px; word-break: break-all; }
+.task-pt {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.task-actions { display: flex; gap: 6px; }
+
+.btn-complete { background: var(--accent-strong); }
+.btn-undo { background: transparent; border: 1px solid var(--green); color: var(--green); }
+.btn-icon {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.task-empty { color: var(--text-dim); font-size: 14px; text-align: center; padding: 12px 0; }
+
+/* ===== タスクフォーム ===== */
+.task-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.task-form input { flex: 1 1 200px; }
+.task-form select { flex: 0 0 110px; }
+.form-buttons { display: flex; gap: 8px; }
+
+/* ===== レベルアップ演出 ===== */
+.levelup-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 24, 0.7);
+  z-index: 100;
+  animation: fadeIn 0.25s ease;
+}
+.levelup-box {
+  text-align: center;
+  animation: popIn 0.5s cubic-bezier(0.18, 1.4, 0.4, 1);
+}
+.levelup-title {
+  font-size: 42px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  background: linear-gradient(90deg, var(--gold), var(--pink), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 30px rgba(255, 209, 102, 0.35);
+}
+.levelup-level { font-size: 28px; font-weight: 800; margin-top: 10px; color: var(--text); }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn {
+  0% { transform: scale(0.3); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ===== トースト ===== */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 10px 20px;
+  font-size: 14px;
+  z-index: 90;
+  animation: fadeIn 0.2s ease;
+  max-width: 90vw;
+}
+
+@media (max-width: 480px) {
+  .level-row { flex-direction: column; align-items: stretch; }
+  .level-badge { align-self: center; }
+}

@@ -52,8 +52,8 @@ const LEVEL_TABLE = [50, 80, 120, 170, 230, 300, 380, 470, 570, 680];
 const BASE_TIMEZONE = "Asia/Tokyo";
 
 // フォームの報酬Pt初期値（タイプ切り替え時にセット）
-const COUNTER_DEFAULT_PT = 25; // カウンター式の初期Pt（追加仕様1）
-const SIMPLE_DEFAULT_PT = 10;  // 1回完了式の初期Pt（従来どおり）
+const COUNTER_DEFAULT_PT = 25; // カウンター式の初期Pt
+const SIMPLE_DEFAULT_PT = 25;  // 1回完了式の初期Pt（カウンター式と25で統一）
 
 // ============================================================
 // 純粋ロジック（Pt → EXP → レベル）

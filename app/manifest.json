@@ -1,0 +1,12 @@
+{
+  "name": "Dailyn",
+  "short_name": "Dailyn",
+  "start_url": ".",
+  "icons": [
+    { "src": "icons/dailyn-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/dailyn-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#1e1e3a",
+  "background_color": "#1e1e3a",
+  "display": "standalone"
+}

@@ -229,7 +229,39 @@ input:focus, select:focus { border-color: var(--accent); }
 }
 .task-item.completed .task-name { text-decoration: line-through; color: var(--text-dim); }
 
-.task-name { flex: 1; font-size: 15px; word-break: break-all; }
+.task-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.task-name { font-size: 15px; word-break: break-all; }
+
+/* ===== カウンター式ミッション ===== */
+.counter-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn-count {
+  min-width: 32px;
+  padding: 4px 8px;
+  font-size: 15px;
+  font-weight: 800;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+.count-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-dim);
+  min-width: 56px;
+  text-align: center;
+  white-space: nowrap;
+}
+.count-label.reached { color: var(--green); }
+.count-bar {
+  flex: 1 1 60px;
+  height: 8px;
+  min-width: 60px;
+}
+.count-fill { background: linear-gradient(90deg, var(--accent), var(--green)); }
 .task-pt {
   font-size: 13px;
   font-weight: 700;
@@ -252,9 +284,29 @@ input:focus, select:focus { border-color: var(--accent); }
 .task-empty { color: var(--text-dim); font-size: 14px; text-align: center; padding: 12px 0; }
 
 /* ===== タスクフォーム ===== */
+.type-toggle { display: flex; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
+.type-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.type-option input { accent-color: var(--accent); }
+.type-option:has(input:checked) { color: var(--text); }
+
 .task-form { display: flex; gap: 8px; flex-wrap: wrap; }
-.task-form input { flex: 1 1 200px; }
+.task-form input[type="text"] { flex: 1 1 200px; }
 .task-form select { flex: 0 0 110px; }
+.target-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.target-label input { width: 80px; }
 .form-buttons { display: flex; gap: 8px; }
 
 /* ===== レベルアップ演出 ===== */

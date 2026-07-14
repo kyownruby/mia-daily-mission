@@ -11,10 +11,11 @@
 // ============================================================
 
 export const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyDM7M0T9zPozUG39KysEN_Vmu3dhqGJvS0",
+  authDomain: "mia-daily-mission.firebaseapp.com",
+  projectId: "mia-daily-mission",
+  storageBucket: "mia-daily-mission.firebasestorage.app",
+  messagingSenderId: "411790599300",
+  appId: "1:411790599300:web:8d750ed6dc57fd23b88ed1",
+  measurementId: "G-V200WX9XYR"
 };

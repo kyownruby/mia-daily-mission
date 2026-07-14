@@ -262,6 +262,20 @@ input:focus, select:focus { border-color: var(--accent); }
   min-width: 60px;
 }
 .count-fill { background: linear-gradient(90deg, var(--accent), var(--green)); }
+
+/* ===== プリセット ===== */
+.subsection-title {
+  font-size: 14px;
+  color: var(--text-dim);
+  margin: 16px 0 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.preset-item { border-style: dashed; }
+.preset-info {
+  font-size: 12px;
+  color: var(--text-dim);
+}
 .task-pt {
   font-size: 13px;
   font-weight: 700;

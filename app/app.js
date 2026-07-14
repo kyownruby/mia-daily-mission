@@ -51,6 +51,10 @@ const LEVEL_TABLE = [50, 80, 120, 170, 230, 300, 380, 470, 570, 680];
 // 日次リセットの基準タイムゾーン（仕様書 4.4）
 const BASE_TIMEZONE = "Asia/Tokyo";
 
+// フォームの報酬Pt初期値（タイプ切り替え時にセット）
+const COUNTER_DEFAULT_PT = 25; // カウンター式の初期Pt（追加仕様1）
+const SIMPLE_DEFAULT_PT = 10;  // 1回完了式の初期Pt（従来どおり）
+
 // ============================================================
 // 純粋ロジック（Pt → EXP → レベル）
 // ============================================================
@@ -152,14 +156,18 @@ const db = initializeFirestore(firebaseApp, {
 let currentUser = null;
 let userData = null;   // users/{uid} ドキュメントの内容
 let tasks = [];        // tasks サブコレクションの内容
+let presets = [];      // presets サブコレクションの内容
 let lastLevel = null;  // レベルアップ演出用
 let editingTaskId = null;
+let editingPresetId = null;
 let authMode = "login"; // "login" | "signup"
 let unsubUserDoc = null;
 let unsubTasks = null;
+let unsubPresets = null;
 
 const userRef = (uid) => doc(db, "users", uid);
 const tasksRef = (uid) => collection(db, "users", uid, "tasks");
+const presetsRef = (uid) => collection(db, "users", uid, "presets");
 
 // ============================================================
 // 認証
@@ -266,8 +274,10 @@ onAuthStateChanged(auth, async (user) => {
     unsubscribeAll();
     userData = null;
     tasks = [];
+    presets = [];
     lastLevel = null;
     cancelEdit();
+    cancelPresetEdit();
     $("app-view").classList.add("hidden");
     $("auth-view").classList.remove("hidden");
   }
@@ -276,6 +286,7 @@ onAuthStateChanged(auth, async (user) => {
 function unsubscribeAll() {
   if (unsubUserDoc) { unsubUserDoc(); unsubUserDoc = null; }
   if (unsubTasks) { unsubTasks(); unsubTasks = null; }
+  if (unsubPresets) { unsubPresets(); unsubPresets = null; }
 }
 
 // ============================================================
@@ -325,6 +336,15 @@ function subscribeUserData(uid) {
       render();
     },
     (err) => console.error("タスクの購読エラー:", err)
+  );
+
+  unsubPresets = onSnapshot(
+    query(presetsRef(uid), orderBy("createdAt", "asc")),
+    (snap) => {
+      presets = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      renderPresets();
+    },
+    (err) => console.error("プリセットの購読エラー:", err)
   );
 }
 
@@ -487,15 +507,38 @@ function showFormError(msg) {
   $("form-error").classList.remove("hidden");
 }
 
-function selectedTaskType() {
-  return document.querySelector('input[name="task-type"]:checked').value;
+function selectedType(radioName) {
+  return document.querySelector(`input[name="${radioName}"]:checked`).value;
 }
+const selectedTaskType = () => selectedType("task-type");
+const selectedPresetType = () => selectedType("preset-type");
 
-// タイプ切り替えで目標回数入力の表示を切り替え
-for (const radio of document.querySelectorAll('input[name="task-type"]')) {
-  radio.addEventListener("change", () => {
-    $("task-target-label").classList.toggle("hidden", selectedTaskType() !== "counter");
-  });
+// タイプ切り替え：目標回数入力の表示切り替え＋報酬Pt初期値のセット
+// （編集中はユーザーが設定済みのPtを勝手に書き換えない）
+function bindTypeToggle(radioName, targetLabelId, ptSelectId, isEditing) {
+  for (const radio of document.querySelectorAll(`input[name="${radioName}"]`)) {
+    radio.addEventListener("change", () => {
+      const type = selectedType(radioName);
+      $(targetLabelId).classList.toggle("hidden", type !== "counter");
+      if (!isEditing()) {
+        $(ptSelectId).value = String(type === "counter" ? COUNTER_DEFAULT_PT : SIMPLE_DEFAULT_PT);
+      }
+    });
+  }
+}
+bindTypeToggle("task-type", "task-target-label", "task-pt-select", () => editingTaskId !== null);
+bindTypeToggle("preset-type", "preset-target-label", "preset-pt-select", () => editingPresetId !== null);
+
+// ミッション／プリセット共通の入力チェック。OKなら null、NGならエラーメッセージを返す
+function validateMissionInput(name, rewardPt, type, targetCount, config) {
+  if (!name) return "タスク名を入力してね";
+  if (!(rewardPt >= config.ptStep && rewardPt <= config.dailyPtCap && rewardPt % config.ptStep === 0)) {
+    return `報酬Ptは${config.ptStep}Pt単位・最大${config.dailyPtCap}Ptで設定してね`;
+  }
+  if (type === "counter" && !(Number.isInteger(targetCount) && targetCount >= 1 && targetCount <= 999)) {
+    return "目標回数は1〜999の整数で設定してね";
+  }
+  return null;
 }
 
 $("task-save-btn").addEventListener("click", async () => {
@@ -504,18 +547,10 @@ $("task-save-btn").addEventListener("click", async () => {
   const rewardPt = Number($("task-pt-select").value);
   const type = selectedTaskType();
   const targetCount = Number($("task-target-input").value);
-  const config = getConfig();
 
-  if (!name) {
-    showFormError("タスク名を入力してね");
-    return;
-  }
-  if (!(rewardPt >= config.ptStep && rewardPt <= config.dailyPtCap && rewardPt % config.ptStep === 0)) {
-    showFormError(`報酬Ptは${config.ptStep}Pt単位・最大${config.dailyPtCap}Ptで設定してね`);
-    return;
-  }
-  if (type === "counter" && !(Number.isInteger(targetCount) && targetCount >= 1 && targetCount <= 999)) {
-    showFormError("目標回数は1〜999の整数で設定してね");
+  const errMsg = validateMissionInput(name, rewardPt, type, targetCount, getConfig());
+  if (errMsg) {
+    showFormError(errMsg);
     return;
   }
 
@@ -583,6 +618,106 @@ async function deleteTask(task) {
   } catch (err) {
     console.error("タスクの削除に失敗:", err);
     showToast("削除に失敗したよ…もう一度試してね");
+  }
+}
+
+// ============================================================
+// プリセット（よく使うミッションのひな形）
+// ============================================================
+
+function showPresetFormError(msg) {
+  $("preset-form-error").textContent = msg;
+  $("preset-form-error").classList.remove("hidden");
+}
+
+$("preset-save-btn").addEventListener("click", async () => {
+  $("preset-form-error").classList.add("hidden");
+  const name = $("preset-name-input").value.trim();
+  const rewardPt = Number($("preset-pt-select").value);
+  const type = selectedPresetType();
+  const targetCount = Number($("preset-target-input").value);
+
+  const errMsg = validateMissionInput(name, rewardPt, type, targetCount, getConfig());
+  if (errMsg) {
+    showPresetFormError(errMsg);
+    return;
+  }
+
+  const presetData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null };
+
+  try {
+    if (editingPresetId) {
+      await updateDoc(doc(db, "users", currentUser.uid, "presets", editingPresetId), presetData);
+      showToast("プリセットを更新したよ✏️");
+      cancelPresetEdit();
+    } else {
+      await addDoc(presetsRef(currentUser.uid), { ...presetData, createdAt: serverTimestamp() });
+      showToast("プリセットを登録したよ⭐");
+      $("preset-name-input").value = "";
+    }
+  } catch (err) {
+    console.error("プリセットの保存に失敗:", err);
+    showPresetFormError("保存に失敗したよ…もう一度試してね");
+  }
+});
+
+$("preset-cancel-btn").addEventListener("click", cancelPresetEdit);
+
+function setPresetFormType(type) {
+  document.querySelector(`input[name="preset-type"][value="${type}"]`).checked = true;
+  $("preset-target-label").classList.toggle("hidden", type !== "counter");
+}
+
+function startPresetEdit(preset) {
+  editingPresetId = preset.id;
+  $("preset-form-title").textContent = "✏️ プリセットを編集";
+  $("preset-name-input").value = preset.name;
+  $("preset-pt-select").value = String(preset.rewardPt);
+  setPresetFormType(preset.type === "counter" ? "counter" : "simple");
+  if (preset.type === "counter") $("preset-target-input").value = String(preset.targetCount);
+  $("preset-save-btn").textContent = "保存";
+  $("preset-cancel-btn").classList.remove("hidden");
+  $("preset-name-input").focus();
+}
+
+function cancelPresetEdit() {
+  editingPresetId = null;
+  $("preset-form-title").textContent = "➕ プリセットを登録";
+  $("preset-name-input").value = "";
+  setPresetFormType("simple");
+  $("preset-save-btn").textContent = "登録";
+  $("preset-cancel-btn").classList.add("hidden");
+  $("preset-form-error").classList.add("hidden");
+}
+
+async function deletePreset(preset) {
+  if (!confirm(`プリセット「${preset.name}」を削除する？\n（デイリーに追加済みのミッションはそのまま残るよ）`)) return;
+  try {
+    await deleteDoc(doc(db, "users", currentUser.uid, "presets", preset.id));
+    if (editingPresetId === preset.id) cancelPresetEdit();
+    showToast("プリセットを削除したよ");
+  } catch (err) {
+    console.error("プリセットの削除に失敗:", err);
+    showToast("削除に失敗したよ…もう一度試してね");
+  }
+}
+
+// プリセット → デイリーへワンタップ追加
+// 値をコピーして新規ミッションを作る（参照は持たせない＝独立性の担保）
+// 重複チェックはしない：同じプリセットを何回でも追加できる
+async function addPresetToDaily(preset) {
+  try {
+    await addDoc(tasksRef(currentUser.uid), {
+      name: preset.name,
+      rewardPt: preset.rewardPt,
+      type: preset.type === "counter" ? "counter" : "simple",
+      targetCount: preset.type === "counter" ? preset.targetCount : null,
+      createdAt: serverTimestamp(),
+    });
+    showToast(`「${preset.name}」をデイリーに追加したよ！`);
+  } catch (err) {
+    console.error("デイリーへの追加に失敗:", err);
+    showToast("追加に失敗したよ…もう一度試してね");
   }
 }
 
@@ -712,6 +847,57 @@ function renderTasks(daily) {
   }
 }
 
+function renderPresets() {
+  const list = $("preset-list");
+  list.innerHTML = "";
+  $("preset-empty").classList.toggle("hidden", presets.length > 0);
+
+  for (const preset of presets) {
+    const isCounter = preset.type === "counter";
+    const li = document.createElement("li");
+    li.className = "task-item preset-item";
+
+    const main = document.createElement("div");
+    main.className = "task-main";
+
+    const name = document.createElement("span");
+    name.className = "task-name";
+    name.textContent = preset.name;
+    main.appendChild(name);
+
+    const info = document.createElement("span");
+    info.className = "preset-info";
+    info.textContent = isCounter ? `カウンター式 ×${preset.targetCount}` : "1回で完了";
+    main.appendChild(info);
+
+    const pt = document.createElement("span");
+    pt.className = "task-pt";
+    pt.textContent = `+${preset.rewardPt} Pt`;
+
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn btn-small btn-complete";
+    addBtn.textContent = "デイリーに追加";
+    addBtn.addEventListener("click", () => addPresetToDaily(preset));
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn btn-small btn-icon";
+    editBtn.textContent = "編集";
+    editBtn.addEventListener("click", () => startPresetEdit(preset));
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn btn-small btn-icon";
+    delBtn.textContent = "削除";
+    delBtn.addEventListener("click", () => deletePreset(preset));
+
+    actions.append(addBtn, editBtn, delBtn);
+    li.append(main, pt, actions);
+    list.appendChild(li);
+  }
+}
+
 // ============================================================
 // 演出・トースト
 // ============================================================
@@ -739,15 +925,17 @@ function showToast(msg) {
 // ============================================================
 
 function initPtSelect() {
-  const select = $("task-pt-select");
-  select.innerHTML = "";
-  for (let pt = DEFAULT_CONFIG.ptStep; pt <= DEFAULT_CONFIG.dailyPtCap; pt += DEFAULT_CONFIG.ptStep) {
-    const opt = document.createElement("option");
-    opt.value = String(pt);
-    opt.textContent = `${pt} Pt`;
-    select.appendChild(opt);
+  for (const id of ["task-pt-select", "preset-pt-select"]) {
+    const select = $(id);
+    select.innerHTML = "";
+    for (let pt = DEFAULT_CONFIG.ptStep; pt <= DEFAULT_CONFIG.dailyPtCap; pt += DEFAULT_CONFIG.ptStep) {
+      const opt = document.createElement("option");
+      opt.value = String(pt);
+      opt.textContent = `${pt} Pt`;
+      select.appendChild(opt);
+    }
+    select.value = String(SIMPLE_DEFAULT_PT);
   }
-  select.value = "10";
 }
 
 // 日付が変わった直後の画面を最新化するため、タブ復帰時にリセットチェック

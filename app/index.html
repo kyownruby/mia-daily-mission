@@ -131,6 +131,39 @@
         </div>
         <p id="form-error" class="auth-error hidden"></p>
       </section>
+
+      <!-- プリセット -->
+      <section class="card">
+        <h2 class="section-title">⭐ プリセット</h2>
+        <ul id="preset-list" class="task-list"></ul>
+        <p id="preset-empty" class="task-empty hidden">
+          よく使うミッションをプリセット登録しておくと、ワンタップでデイリーに追加できるよ！
+        </p>
+        <h3 class="subsection-title" id="preset-form-title">➕ プリセットを登録</h3>
+        <div class="type-toggle">
+          <label class="type-option">
+            <input type="radio" name="preset-type" value="simple" checked>
+            <span>1回で完了</span>
+          </label>
+          <label class="type-option">
+            <input type="radio" name="preset-type" value="counter">
+            <span>カウンター式（○○をn回）</span>
+          </label>
+        </div>
+        <div class="task-form">
+          <input type="text" id="preset-name-input" placeholder="ミッション名（例：記事を読んでスキ）" maxlength="50">
+          <select id="preset-pt-select"></select>
+          <label id="preset-target-label" class="target-label hidden">
+            目標回数
+            <input type="number" id="preset-target-input" min="1" max="999" step="1" value="10">
+          </label>
+          <div class="form-buttons">
+            <button id="preset-save-btn" class="btn btn-primary">登録</button>
+            <button id="preset-cancel-btn" class="btn btn-ghost hidden">キャンセル</button>
+          </div>
+        </div>
+        <p id="preset-form-error" class="auth-error hidden"></p>
+      </section>
     </main>
   </div>
 

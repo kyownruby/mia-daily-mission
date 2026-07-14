@@ -107,9 +107,23 @@
       <!-- タスク追加・編集 -->
       <section class="card">
         <h2 class="section-title" id="form-title">➕ ミッションを追加</h2>
+        <div class="type-toggle">
+          <label class="type-option">
+            <input type="radio" name="task-type" value="simple" checked>
+            <span>1回で完了</span>
+          </label>
+          <label class="type-option">
+            <input type="radio" name="task-type" value="counter">
+            <span>カウンター式（○○をn回）</span>
+          </label>
+        </div>
         <div class="task-form">
           <input type="text" id="task-name-input" placeholder="タスク名（例：朝の掃除）" maxlength="50">
           <select id="task-pt-select"></select>
+          <label id="task-target-label" class="target-label hidden">
+            目標回数
+            <input type="number" id="task-target-input" min="1" max="999" step="1" value="10">
+          </label>
           <div class="form-buttons">
             <button id="task-save-btn" class="btn btn-primary">追加</button>
             <button id="task-cancel-btn" class="btn btn-ghost hidden">キャンセル</button>

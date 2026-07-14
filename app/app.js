@@ -104,6 +104,7 @@ function initialUserData(today) {
       dailyBonusClaimed: false,
       completedTaskIds: [],
       appliedPt: {}, // タスクごとの「実際に加算されたPt」（上限切り捨て後）。取り消しの正確な復元に使う
+      counters: {},  // カウンター式ミッションの現在カウント { taskId: n }。daily側に持つので日次で自動リセット
     },
     config: { ...DEFAULT_CONFIG },
   };
@@ -112,7 +113,7 @@ function initialUserData(today) {
 // 日付が変わっていたら daily をリセットした状態を返す（tasks / account は維持）
 function normalizedDaily(data, today) {
   if (data.daily && data.daily.date === today) {
-    return { appliedPt: {}, ...data.daily };
+    return { appliedPt: {}, counters: {}, ...data.daily };
   }
   return {
     date: today,
@@ -121,6 +122,7 @@ function normalizedDaily(data, today) {
     dailyBonusClaimed: false,
     completedTaskIds: [],
     appliedPt: {},
+    counters: {},
   };
 }
 
@@ -351,7 +353,8 @@ window.addEventListener("offline", () => updateSyncStatus(false));
 // タスク完了・取り消し（仕様書 9.1 / 9.2：トランザクションで整合性を保つ）
 // ============================================================
 
-async function completeTask(taskId, rewardPt) {
+async function completeTask(task) {
+  const { id: taskId, rewardPt } = task;
   const uid = currentUser.uid;
   const today = todayStr();
   try {
@@ -363,6 +366,8 @@ async function completeTask(taskId, rewardPt) {
       const daily = normalizedDaily(data, today); // 日付が変わっていたらリセット後の状態で計算
 
       if (daily.completedTaskIds.includes(taskId)) return; // 二重完了ガード
+      // カウンター式は目標達成まで完了不可（UIの無効化だけに頼らない）
+      if (task.type === "counter" && (daily.counters[taskId] || 0) < task.targetCount) return;
 
       // 1. Pt加算（上限で頭打ち・超過切り捨て）
       const newPt = Math.min(config.dailyPtCap, daily.todayPt + rewardPt);
@@ -436,6 +441,33 @@ async function uncompleteTask(taskId, rewardPt) {
   }
 }
 
+// カウンター式ミッションのカウント操作（±1、0未満にはしない）
+async function changeCount(taskId, delta) {
+  const uid = currentUser.uid;
+  const today = todayStr();
+  try {
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(userRef(uid));
+      if (!snap.exists()) throw new Error("ユーザーデータがありません");
+      const data = snap.data();
+      const daily = normalizedDaily(data, today);
+
+      if (daily.completedTaskIds.includes(taskId)) return; // 完了済みはカウント操作不可
+
+      const current = daily.counters[taskId] || 0;
+      const next = Math.max(0, current + delta);
+      if (next === current) return;
+
+      tx.update(userRef(uid), {
+        daily: { ...daily, counters: { ...daily.counters, [taskId]: next } },
+      });
+    });
+  } catch (err) {
+    console.error("カウント更新に失敗:", err);
+    showToast("カウントの保存に失敗したよ…もう一度試してね");
+  }
+}
+
 // ============================================================
 // タスクCRUD
 // ============================================================
@@ -455,10 +487,23 @@ function showFormError(msg) {
   $("form-error").classList.remove("hidden");
 }
 
+function selectedTaskType() {
+  return document.querySelector('input[name="task-type"]:checked').value;
+}
+
+// タイプ切り替えで目標回数入力の表示を切り替え
+for (const radio of document.querySelectorAll('input[name="task-type"]')) {
+  radio.addEventListener("change", () => {
+    $("task-target-label").classList.toggle("hidden", selectedTaskType() !== "counter");
+  });
+}
+
 $("task-save-btn").addEventListener("click", async () => {
   $("form-error").classList.add("hidden");
   const name = $("task-name-input").value.trim();
   const rewardPt = Number($("task-pt-select").value);
+  const type = selectedTaskType();
+  const targetCount = Number($("task-target-input").value);
   const config = getConfig();
 
   if (!name) {
@@ -469,6 +514,12 @@ $("task-save-btn").addEventListener("click", async () => {
     showFormError(`報酬Ptは${config.ptStep}Pt単位・最大${config.dailyPtCap}Ptで設定してね`);
     return;
   }
+  if (type === "counter" && !(Number.isInteger(targetCount) && targetCount >= 1 && targetCount <= 999)) {
+    showFormError("目標回数は1〜999の整数で設定してね");
+    return;
+  }
+
+  const taskData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null };
 
   try {
     if (editingTaskId) {
@@ -476,11 +527,11 @@ $("task-save-btn").addEventListener("click", async () => {
         showFormError("完了済みのタスクは編集できないよ。先に取り消してね");
         return;
       }
-      await updateDoc(doc(db, "users", currentUser.uid, "tasks", editingTaskId), { name, rewardPt });
+      await updateDoc(doc(db, "users", currentUser.uid, "tasks", editingTaskId), taskData);
       showToast("ミッションを更新したよ✏️");
       cancelEdit();
     } else {
-      await addDoc(tasksRef(currentUser.uid), { name, rewardPt, createdAt: serverTimestamp() });
+      await addDoc(tasksRef(currentUser.uid), { ...taskData, createdAt: serverTimestamp() });
       showToast("ミッションを追加したよ！");
       $("task-name-input").value = "";
     }
@@ -492,11 +543,18 @@ $("task-save-btn").addEventListener("click", async () => {
 
 $("task-cancel-btn").addEventListener("click", cancelEdit);
 
+function setFormType(type) {
+  document.querySelector(`input[name="task-type"][value="${type}"]`).checked = true;
+  $("task-target-label").classList.toggle("hidden", type !== "counter");
+}
+
 function startEdit(task) {
   editingTaskId = task.id;
   $("form-title").textContent = "✏️ ミッションを編集";
   $("task-name-input").value = task.name;
   $("task-pt-select").value = String(task.rewardPt);
+  setFormType(task.type === "counter" ? "counter" : "simple");
+  if (task.type === "counter") $("task-target-input").value = String(task.targetCount);
   $("task-save-btn").textContent = "保存";
   $("task-cancel-btn").classList.remove("hidden");
   $("task-name-input").focus();
@@ -506,6 +564,7 @@ function cancelEdit() {
   editingTaskId = null;
   $("form-title").textContent = "➕ ミッションを追加";
   $("task-name-input").value = "";
+  setFormType("simple");
   $("task-save-btn").textContent = "追加";
   $("task-cancel-btn").classList.add("hidden");
   $("form-error").classList.add("hidden");
@@ -564,15 +623,56 @@ function renderTasks(daily) {
   $("task-empty").classList.toggle("hidden", tasks.length > 0);
 
   const completedIds = daily.completedTaskIds || [];
+  const counters = daily.counters || {};
 
   for (const task of tasks) {
     const completed = completedIds.includes(task.id);
+    const isCounter = task.type === "counter";
+    const count = counters[task.id] || 0;
+    const reached = !isCounter || count >= task.targetCount;
+
     const li = document.createElement("li");
     li.className = "task-item" + (completed ? " completed" : "");
+
+    const main = document.createElement("div");
+    main.className = "task-main";
 
     const name = document.createElement("span");
     name.className = "task-name";
     name.textContent = task.name;
+    main.appendChild(name);
+
+    // カウンター式：－ / 現在 / 目標 / ＋ とミニ進捗バー
+    if (isCounter) {
+      const counterBox = document.createElement("div");
+      counterBox.className = "counter-box";
+
+      const minusBtn = document.createElement("button");
+      minusBtn.className = "btn btn-small btn-count";
+      minusBtn.textContent = "－";
+      minusBtn.disabled = completed || count <= 0;
+      minusBtn.addEventListener("click", () => changeCount(task.id, -1));
+
+      const countLabel = document.createElement("span");
+      countLabel.className = "count-label" + (reached ? " reached" : "");
+      countLabel.textContent = `${count} / ${task.targetCount}`;
+
+      const plusBtn = document.createElement("button");
+      plusBtn.className = "btn btn-small btn-count";
+      plusBtn.textContent = "＋";
+      plusBtn.disabled = completed;
+      plusBtn.addEventListener("click", () => changeCount(task.id, 1));
+
+      const miniBar = document.createElement("div");
+      miniBar.className = "bar count-bar";
+      const miniFill = document.createElement("div");
+      miniFill.className = "bar-fill count-fill";
+      miniFill.style.width = `${Math.min(100, (count / task.targetCount) * 100)}%`;
+      miniBar.appendChild(miniFill);
+
+      counterBox.append(minusBtn, countLabel, plusBtn, miniBar);
+      main.appendChild(counterBox);
+    }
 
     const pt = document.createElement("span");
     pt.className = "task-pt";
@@ -589,7 +689,9 @@ function renderTasks(daily) {
     } else {
       toggleBtn.className = "btn btn-small btn-complete";
       toggleBtn.textContent = "完了";
-      toggleBtn.addEventListener("click", () => completeTask(task.id, task.rewardPt));
+      toggleBtn.disabled = !reached; // カウンター式は目標達成まで無効
+      if (!reached) toggleBtn.title = `あと${task.targetCount - count}回で完了できるよ`;
+      toggleBtn.addEventListener("click", () => completeTask(task));
     }
 
     const editBtn = document.createElement("button");
@@ -605,7 +707,7 @@ function renderTasks(daily) {
     delBtn.addEventListener("click", () => deleteTask(task));
 
     actions.append(toggleBtn, editBtn, delBtn);
-    li.append(name, pt, actions);
+    li.append(main, pt, actions);
     list.appendChild(li);
   }
 }

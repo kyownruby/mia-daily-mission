@@ -910,17 +910,17 @@ function renderTasks(daily) {
     const row = document.createElement("div");
     row.className = "task-row";
 
-    // サブタスク持ちは開閉トグル（デフォルト閉じ）
+    // サブタスク持ちは開閉トグル（デフォルト閉じ）。行の右端（操作アイコンの隣）に置く
     const expanded = expandedTasks.has(task.id);
+    let toggle = null;
     if (hasSubs) {
-      const toggle = iconButton("chevron", expanded ? "サブタスクを閉じる" : "サブタスクを開く", "subtask-toggle" + (expanded ? " open" : ""));
+      toggle = iconButton("chevron", expanded ? "サブタスクを閉じる" : "サブタスクを開く", "subtask-toggle" + (expanded ? " open" : ""));
       toggle.setAttribute("aria-expanded", String(expanded));
       toggle.addEventListener("click", () => {
         if (expandedTasks.has(task.id)) expandedTasks.delete(task.id);
         else expandedTasks.add(task.id);
         render();
       });
-      row.appendChild(toggle);
     }
 
     const main = document.createElement("div");
@@ -1004,6 +1004,7 @@ function renderTasks(daily) {
 
     actions.append(toggleBtn, editBtn, delBtn);
     row.append(main, pt, actions);
+    if (toggle) row.appendChild(toggle);
     li.appendChild(row);
 
     // サブタスク一覧（開いているときだけ表示）

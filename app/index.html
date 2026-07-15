@@ -197,6 +197,15 @@
             <button id="preset-cancel-btn" class="btn btn-ghost hidden">キャンセル</button>
           </div>
         </div>
+        <!-- サブタスク編集（1回完了式のときのみ表示） -->
+        <div id="preset-subtask-editor" class="subtask-editor">
+          <p class="subtask-editor-label">サブタスク（任意）：デイリーに追加したときに構成がコピーされるよ</p>
+          <ul id="preset-subtask-edit-list" class="subtask-edit-list"></ul>
+          <div class="subtask-add-row">
+            <input type="text" id="preset-subtask-name-input" placeholder="サブタスク名（例：テスト）" maxlength="50">
+            <button id="preset-subtask-add-btn" class="btn btn-small btn-ghost">サブタスクを追加</button>
+          </div>
+        </div>
         <p id="preset-form-error" class="auth-error hidden"></p>
       </section>
     </main>

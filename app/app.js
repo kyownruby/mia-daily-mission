@@ -137,6 +137,11 @@ function taskSubtasks(task) {
   return task.type !== "counter" && Array.isArray(task.subtasks) ? task.subtasks : [];
 }
 
+// プリセットのサブタスク配列（simpleのみ。無ければ空配列）
+function presetSubtasks(preset) {
+  return preset.type !== "counter" && Array.isArray(preset.subtasks) ? preset.subtasks : [];
+}
+
 // ============================================================
 // Firebase 初期化
 // ============================================================
@@ -597,53 +602,78 @@ bindTypeToggle("preset-type", "preset-target-label", "preset-pt-select", () => e
 
 // サブタスク編集欄は「1回で完了」のときだけ表示
 function updateSubtaskEditorVisibility() {
-  $("subtask-editor").classList.toggle("hidden", selectedTaskType() !== "simple");
+  taskSubtaskEditor.setVisible(selectedTaskType() === "simple");
 }
 for (const radio of document.querySelectorAll('input[name="task-type"]')) {
   radio.addEventListener("change", updateSubtaskEditorVisibility);
 }
 
-// ============================================================
-// フォーム内のサブタスク編集
-// ============================================================
+function updatePresetSubtaskEditorVisibility() {
+  presetSubtaskEditor.setVisible(selectedPresetType() === "simple");
+}
+for (const radio of document.querySelectorAll('input[name="preset-type"]')) {
+  radio.addEventListener("change", updatePresetSubtaskEditorVisibility);
+}
 
-let formSubtasks = []; // { id, name } の配列（保存時にタスクへ反映）
+// ============================================================
+// フォーム内のサブタスク編集（ミッション・プリセットで共通）
+// ============================================================
 
 function newSubtaskId() {
   return "sub_" + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10));
 }
 
-function renderFormSubtasks() {
-  const ul = $("subtask-edit-list");
-  ul.innerHTML = "";
-  formSubtasks.forEach((st, index) => {
-    const li = document.createElement("li");
-    li.className = "subtask-edit-item";
+// prefix から要素ID（${prefix}-editor / -edit-list / -name-input / -add-btn）を組み立てて
+// { get, set, clear, setVisible } の編集用インターフェースを返す
+function makeSubtaskEditor(prefix) {
+  let items = []; // { id, name } の配列
 
-    const input = document.createElement("input");
-    input.type = "text";
-    input.value = st.name;
-    input.maxLength = 50;
-    input.addEventListener("input", () => { st.name = input.value; });
+  const editorEl = $(`${prefix}-editor`);
+  const listEl = $(`${prefix}-edit-list`);
+  const nameInput = $(`${prefix}-name-input`);
+  const addBtn = $(`${prefix}-add-btn`);
 
-    const delBtn = iconButton("x", "サブタスクを削除", "btn btn-small btn-icon btn-sq btn-danger-hover");
-    delBtn.addEventListener("click", () => {
-      formSubtasks.splice(index, 1);
-      renderFormSubtasks(); // ダイアログなしで即削除
+  function render() {
+    listEl.innerHTML = "";
+    items.forEach((st, index) => {
+      const li = document.createElement("li");
+      li.className = "subtask-edit-item";
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = st.name;
+      input.maxLength = 50;
+      input.addEventListener("input", () => { st.name = input.value; });
+
+      const delBtn = iconButton("x", "サブタスクを削除", "btn btn-small btn-icon btn-sq btn-danger-hover");
+      delBtn.addEventListener("click", () => {
+        items.splice(index, 1);
+        render(); // ダイアログなしで即削除
+      });
+
+      li.append(input, delBtn);
+      listEl.appendChild(li);
     });
+  }
 
-    li.append(input, delBtn);
-    ul.appendChild(li);
+  addBtn.addEventListener("click", () => {
+    const name = nameInput.value.trim();
+    if (!name) return;
+    items.push({ id: newSubtaskId(), name });
+    nameInput.value = "";
+    render();
   });
+
+  return {
+    get: () => items.map((s) => ({ id: s.id, name: s.name.trim() })).filter((s) => s.name),
+    set: (arr) => { items = arr.map((s) => ({ ...s })); render(); },
+    clear: () => { items = []; render(); },
+    setVisible: (visible) => editorEl.classList.toggle("hidden", !visible),
+  };
 }
 
-$("subtask-add-btn").addEventListener("click", () => {
-  const name = $("subtask-name-input").value.trim();
-  if (!name) return;
-  formSubtasks.push({ id: newSubtaskId(), name });
-  $("subtask-name-input").value = "";
-  renderFormSubtasks();
-});
+const taskSubtaskEditor = makeSubtaskEditor("subtask");
+const presetSubtaskEditor = makeSubtaskEditor("preset-subtask");
 
 // ミッション／プリセット共通の入力チェック。OKなら null、NGならエラーメッセージを返す
 function validateMissionInput(name, rewardPt, type, targetCount, config) {
@@ -671,9 +701,7 @@ $("task-save-btn").addEventListener("click", async () => {
   }
 
   // サブタスクは simple のみ。名前が空の行は除外
-  const subtasks = type === "simple"
-    ? formSubtasks.map((s) => ({ id: s.id, name: s.name.trim() })).filter((s) => s.name)
-    : [];
+  const subtasks = type === "simple" ? taskSubtaskEditor.get() : [];
   const taskData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null, subtasks };
 
   try {
@@ -689,8 +717,7 @@ $("task-save-btn").addEventListener("click", async () => {
       await addDoc(tasksRef(currentUser.uid), { ...taskData, createdAt: serverTimestamp() });
       showToast("ミッションを追加したよ！");
       $("task-name-input").value = "";
-      formSubtasks = [];
-      renderFormSubtasks();
+      taskSubtaskEditor.clear();
     }
   } catch (err) {
     console.error("タスクの保存に失敗:", err);
@@ -712,8 +739,7 @@ function startEdit(task) {
   $("task-pt-select").value = String(task.rewardPt);
   setFormType(task.type === "counter" ? "counter" : "simple");
   if (task.type === "counter") $("task-target-input").value = String(task.targetCount);
-  formSubtasks = taskSubtasks(task).map((s) => ({ ...s })); // コピーして編集
-  renderFormSubtasks();
+  taskSubtaskEditor.set(taskSubtasks(task));
   updateSubtaskEditorVisibility();
   $("task-save-btn").textContent = "保存";
   $("task-cancel-btn").classList.remove("hidden");
@@ -725,8 +751,7 @@ function cancelEdit() {
   $("form-title").textContent = "➕ ミッションを追加";
   $("task-name-input").value = "";
   setFormType("simple");
-  formSubtasks = [];
-  renderFormSubtasks();
+  taskSubtaskEditor.clear();
   updateSubtaskEditorVisibility();
   $("task-save-btn").textContent = "追加";
   $("task-cancel-btn").classList.add("hidden");
@@ -771,7 +796,9 @@ $("preset-save-btn").addEventListener("click", async () => {
     return;
   }
 
-  const presetData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null };
+  // サブタスクは simple のみ。名前が空の行は除外
+  const subtasks = type === "simple" ? presetSubtaskEditor.get() : [];
+  const presetData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null, subtasks };
 
   try {
     if (editingPresetId) {
@@ -782,6 +809,7 @@ $("preset-save-btn").addEventListener("click", async () => {
       await addDoc(presetsRef(currentUser.uid), { ...presetData, createdAt: serverTimestamp() });
       showToast("プリセットを登録したよ⭐");
       $("preset-name-input").value = "";
+      presetSubtaskEditor.clear();
     }
   } catch (err) {
     console.error("プリセットの保存に失敗:", err);
@@ -803,6 +831,8 @@ function startPresetEdit(preset) {
   $("preset-pt-select").value = String(preset.rewardPt);
   setPresetFormType(preset.type === "counter" ? "counter" : "simple");
   if (preset.type === "counter") $("preset-target-input").value = String(preset.targetCount);
+  presetSubtaskEditor.set(presetSubtasks(preset));
+  updatePresetSubtaskEditorVisibility();
   $("preset-save-btn").textContent = "保存";
   $("preset-cancel-btn").classList.remove("hidden");
   $("preset-name-input").focus();
@@ -813,6 +843,8 @@ function cancelPresetEdit() {
   $("preset-form-title").textContent = "➕ プリセットを登録";
   $("preset-name-input").value = "";
   setPresetFormType("simple");
+  presetSubtaskEditor.clear();
+  updatePresetSubtaskEditorVisibility();
   $("preset-save-btn").textContent = "登録";
   $("preset-cancel-btn").classList.add("hidden");
   $("preset-form-error").classList.add("hidden");
@@ -832,6 +864,7 @@ async function deletePreset(preset) {
 
 // プリセット → デイリーへワンタップ追加
 // 値をコピーして新規ミッションを作る（参照は持たせない＝独立性の担保）
+// サブタスクも構成をコピーする（doneはdaily.subDone側で管理するので常に未完了から）
 // 重複チェックはしない：同じプリセットを何回でも追加できる
 async function addPresetToDaily(preset) {
   try {
@@ -840,6 +873,7 @@ async function addPresetToDaily(preset) {
       rewardPt: preset.rewardPt,
       type: preset.type === "counter" ? "counter" : "simple",
       targetCount: preset.type === "counter" ? preset.targetCount : null,
+      subtasks: presetSubtasks(preset).map((s) => ({ id: newSubtaskId(), name: s.name })),
       createdAt: serverTimestamp(),
     });
     showToast(`「${preset.name}」をデイリーに追加したよ！`);
@@ -1059,9 +1093,12 @@ function renderPresets() {
     name.textContent = preset.name;
     main.appendChild(name);
 
+    const subs = presetSubtasks(preset);
     const info = document.createElement("span");
     info.className = "preset-info";
-    info.textContent = isCounter ? `カウンター式 ×${preset.targetCount}` : "1回で完了";
+    info.textContent = isCounter
+      ? `カウンター式 ×${preset.targetCount}`
+      : (subs.length > 0 ? `1回で完了（サブタスク${subs.length}個）` : "1回で完了");
     main.appendChild(info);
 
     const pt = document.createElement("span");

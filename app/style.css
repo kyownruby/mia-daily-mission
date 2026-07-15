@@ -301,11 +301,11 @@ input:focus, select:focus { border-color: var(--accent); }
 
 .task-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
-/* ミッション名 → 報酬Pt を1行目にまとめて表示（列ズレを避けるため名前に続けて流す） */
+/* ミッション名の隣に開閉トグルを添える1行目 */
 .task-title-row {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
   flex-wrap: wrap;
 }
 .task-name { font-size: 15px; word-break: break-all; }
@@ -354,14 +354,17 @@ input:focus, select:focus { border-color: var(--accent); }
   font-size: 12px;
   color: var(--text-dim);
 }
+/* 固定幅の列として扱う（+25 Pt でも +100 Pt でも列の開始位置が揃うように） */
 .task-pt {
   font-size: 13px;
   font-weight: 700;
   color: var(--gold);
   white-space: nowrap;
+  min-width: 58px;
+  flex-shrink: 0;
 }
 
-.task-actions { display: flex; gap: 6px; }
+.task-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 .btn-complete { background: var(--accent-strong); }
 .btn-undo { background: transparent; border: 1px solid var(--green); color: var(--green); }

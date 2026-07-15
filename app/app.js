@@ -109,6 +109,7 @@ function initialUserData(today) {
       completedTaskIds: [],
       appliedPt: {}, // タスクごとの「実際に加算されたPt」（上限切り捨て後）。取り消しの正確な復元に使う
       counters: {},  // カウンター式ミッションの現在カウント { taskId: n }。daily側に持つので日次で自動リセット
+      subDone: {},   // サブタスクの完了状態 { taskId: { subId: true } }。daily側なので日次で自動リセット
     },
     config: { ...DEFAULT_CONFIG },
   };
@@ -117,7 +118,7 @@ function initialUserData(today) {
 // 日付が変わっていたら daily をリセットした状態を返す（tasks / account は維持）
 function normalizedDaily(data, today) {
   if (data.daily && data.daily.date === today) {
-    return { appliedPt: {}, counters: {}, ...data.daily };
+    return { appliedPt: {}, counters: {}, subDone: {}, ...data.daily };
   }
   return {
     date: today,
@@ -127,12 +128,40 @@ function normalizedDaily(data, today) {
     completedTaskIds: [],
     appliedPt: {},
     counters: {},
+    subDone: {},
   };
+}
+
+// タスクのサブタスク配列（simpleのみ。無ければ空配列）
+function taskSubtasks(task) {
+  return task.type !== "counter" && Array.isArray(task.subtasks) ? task.subtasks : [];
 }
 
 // ============================================================
 // Firebase 初期化
 // ============================================================
+
+// ============================================================
+// アイコン（インラインSVG）
+// ============================================================
+
+const ICONS = {
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  undo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
+  pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>',
+};
+
+// アイコンボタンを作る（aria-label / title 付き）
+function iconButton(iconName, label, className) {
+  const btn = document.createElement("button");
+  btn.className = className;
+  btn.innerHTML = ICONS[iconName];
+  btn.setAttribute("aria-label", label);
+  btn.title = label;
+  return btn;
+}
 
 const configured = firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("YOUR_");
 
@@ -160,6 +189,7 @@ let presets = [];      // presets サブコレクションの内容
 let lastLevel = null;  // レベルアップ演出用
 let editingTaskId = null;
 let editingPresetId = null;
+let expandedTasks = new Set(); // サブタスクを開いているタスクID（デフォルトは閉じ）
 let authMode = "login"; // "login" | "signup"
 let unsubUserDoc = null;
 let unsubTasks = null;
@@ -276,6 +306,7 @@ onAuthStateChanged(auth, async (user) => {
     tasks = [];
     presets = [];
     lastLevel = null;
+    expandedTasks = new Set();
     cancelEdit();
     cancelPresetEdit();
     $("app-view").classList.add("hidden");
@@ -388,6 +419,12 @@ async function completeTask(task) {
       if (daily.completedTaskIds.includes(taskId)) return; // 二重完了ガード
       // カウンター式は目標達成まで完了不可（UIの無効化だけに頼らない）
       if (task.type === "counter" && (daily.counters[taskId] || 0) < task.targetCount) return;
+      // サブタスク持ちは全チェックまで完了不可
+      const subs = taskSubtasks(task);
+      if (subs.length > 0) {
+        const doneMap = daily.subDone[taskId] || {};
+        if (!subs.every((s) => doneMap[s.id])) return;
+      }
 
       // 1. Pt加算（上限で頭打ち・超過切り捨て）
       const newPt = Math.min(config.dailyPtCap, daily.todayPt + rewardPt);
@@ -488,6 +525,35 @@ async function changeCount(taskId, delta) {
   }
 }
 
+// サブタスクの完了/未完了をトグル
+async function toggleSubtask(taskId, subId, checked) {
+  const uid = currentUser.uid;
+  const today = todayStr();
+  try {
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(userRef(uid));
+      if (!snap.exists()) throw new Error("ユーザーデータがありません");
+      const data = snap.data();
+      const daily = normalizedDaily(data, today);
+
+      if (daily.completedTaskIds.includes(taskId)) return; // 完了済みの親は操作不可
+
+      const taskDone = { ...(daily.subDone[taskId] || {}) };
+      if (checked) {
+        taskDone[subId] = true;
+      } else {
+        delete taskDone[subId];
+      }
+      tx.update(userRef(uid), {
+        daily: { ...daily, subDone: { ...daily.subDone, [taskId]: taskDone } },
+      });
+    });
+  } catch (err) {
+    console.error("サブタスク更新に失敗:", err);
+    showToast("サブタスクの保存に失敗したよ…もう一度試してね");
+  }
+}
+
 // ============================================================
 // タスクCRUD
 // ============================================================
@@ -529,6 +595,56 @@ function bindTypeToggle(radioName, targetLabelId, ptSelectId, isEditing) {
 bindTypeToggle("task-type", "task-target-label", "task-pt-select", () => editingTaskId !== null);
 bindTypeToggle("preset-type", "preset-target-label", "preset-pt-select", () => editingPresetId !== null);
 
+// サブタスク編集欄は「1回で完了」のときだけ表示
+function updateSubtaskEditorVisibility() {
+  $("subtask-editor").classList.toggle("hidden", selectedTaskType() !== "simple");
+}
+for (const radio of document.querySelectorAll('input[name="task-type"]')) {
+  radio.addEventListener("change", updateSubtaskEditorVisibility);
+}
+
+// ============================================================
+// フォーム内のサブタスク編集
+// ============================================================
+
+let formSubtasks = []; // { id, name } の配列（保存時にタスクへ反映）
+
+function newSubtaskId() {
+  return "sub_" + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10));
+}
+
+function renderFormSubtasks() {
+  const ul = $("subtask-edit-list");
+  ul.innerHTML = "";
+  formSubtasks.forEach((st, index) => {
+    const li = document.createElement("li");
+    li.className = "subtask-edit-item";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = st.name;
+    input.maxLength = 50;
+    input.addEventListener("input", () => { st.name = input.value; });
+
+    const delBtn = iconButton("x", "サブタスクを削除", "btn btn-small btn-icon btn-sq btn-danger-hover");
+    delBtn.addEventListener("click", () => {
+      formSubtasks.splice(index, 1);
+      renderFormSubtasks(); // ダイアログなしで即削除
+    });
+
+    li.append(input, delBtn);
+    ul.appendChild(li);
+  });
+}
+
+$("subtask-add-btn").addEventListener("click", () => {
+  const name = $("subtask-name-input").value.trim();
+  if (!name) return;
+  formSubtasks.push({ id: newSubtaskId(), name });
+  $("subtask-name-input").value = "";
+  renderFormSubtasks();
+});
+
 // ミッション／プリセット共通の入力チェック。OKなら null、NGならエラーメッセージを返す
 function validateMissionInput(name, rewardPt, type, targetCount, config) {
   if (!name) return "タスク名を入力してね";
@@ -554,7 +670,11 @@ $("task-save-btn").addEventListener("click", async () => {
     return;
   }
 
-  const taskData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null };
+  // サブタスクは simple のみ。名前が空の行は除外
+  const subtasks = type === "simple"
+    ? formSubtasks.map((s) => ({ id: s.id, name: s.name.trim() })).filter((s) => s.name)
+    : [];
+  const taskData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null, subtasks };
 
   try {
     if (editingTaskId) {
@@ -569,6 +689,8 @@ $("task-save-btn").addEventListener("click", async () => {
       await addDoc(tasksRef(currentUser.uid), { ...taskData, createdAt: serverTimestamp() });
       showToast("ミッションを追加したよ！");
       $("task-name-input").value = "";
+      formSubtasks = [];
+      renderFormSubtasks();
     }
   } catch (err) {
     console.error("タスクの保存に失敗:", err);
@@ -590,6 +712,9 @@ function startEdit(task) {
   $("task-pt-select").value = String(task.rewardPt);
   setFormType(task.type === "counter" ? "counter" : "simple");
   if (task.type === "counter") $("task-target-input").value = String(task.targetCount);
+  formSubtasks = taskSubtasks(task).map((s) => ({ ...s })); // コピーして編集
+  renderFormSubtasks();
+  updateSubtaskEditorVisibility();
   $("task-save-btn").textContent = "保存";
   $("task-cancel-btn").classList.remove("hidden");
   $("task-name-input").focus();
@@ -600,6 +725,9 @@ function cancelEdit() {
   $("form-title").textContent = "➕ ミッションを追加";
   $("task-name-input").value = "";
   setFormType("simple");
+  formSubtasks = [];
+  renderFormSubtasks();
+  updateSubtaskEditorVisibility();
   $("task-save-btn").textContent = "追加";
   $("task-cancel-btn").classList.add("hidden");
   $("form-error").classList.add("hidden");
@@ -610,7 +738,7 @@ async function deleteTask(task) {
     showToast("完了済みのタスクは削除できないよ。先に取り消してね");
     return;
   }
-  if (!confirm(`「${task.name}」を削除する？`)) return;
+  // 確認ダイアログなしで即削除（仕様）
   try {
     await deleteDoc(doc(db, "users", currentUser.uid, "tasks", task.id));
     if (editingTaskId === task.id) cancelEdit();
@@ -691,7 +819,7 @@ function cancelPresetEdit() {
 }
 
 async function deletePreset(preset) {
-  if (!confirm(`プリセット「${preset.name}」を削除する？\n（デイリーに追加済みのミッションはそのまま残るよ）`)) return;
+  // 確認ダイアログなしで即削除（仕様）
   try {
     await deleteDoc(doc(db, "users", currentUser.uid, "presets", preset.id));
     if (editingPresetId === preset.id) cancelPresetEdit();
@@ -764,10 +892,36 @@ function renderTasks(daily) {
     const completed = completedIds.includes(task.id);
     const isCounter = task.type === "counter";
     const count = counters[task.id] || 0;
-    const reached = !isCounter || count >= task.targetCount;
+
+    // サブタスク（simpleのみ）
+    const subs = taskSubtasks(task);
+    const hasSubs = subs.length > 0;
+    const doneMap = (daily.subDone || {})[task.id] || {};
+    const doneCount = subs.filter((s) => doneMap[s.id]).length;
+
+    // 完了ボタンの有効判定（仕様書 6.1）
+    const canComplete = isCounter
+      ? count >= task.targetCount
+      : (!hasSubs || doneCount === subs.length);
 
     const li = document.createElement("li");
     li.className = "task-item" + (completed ? " completed" : "");
+
+    const row = document.createElement("div");
+    row.className = "task-row";
+
+    // サブタスク持ちは開閉トグル（デフォルト閉じ）
+    const expanded = expandedTasks.has(task.id);
+    if (hasSubs) {
+      const toggle = iconButton("chevron", expanded ? "サブタスクを閉じる" : "サブタスクを開く", "subtask-toggle" + (expanded ? " open" : ""));
+      toggle.setAttribute("aria-expanded", String(expanded));
+      toggle.addEventListener("click", () => {
+        if (expandedTasks.has(task.id)) expandedTasks.delete(task.id);
+        else expandedTasks.add(task.id);
+        render();
+      });
+      row.appendChild(toggle);
+    }
 
     const main = document.createElement("div");
     main.className = "task-main";
@@ -776,6 +930,14 @@ function renderTasks(daily) {
     name.className = "task-name";
     name.textContent = task.name;
     main.appendChild(name);
+
+    // 閉じたままでも進捗が分かる表示（例：1 / 3）
+    if (hasSubs) {
+      const progress = document.createElement("span");
+      progress.className = "count-label subtask-progress" + (doneCount === subs.length ? " reached" : "");
+      progress.textContent = `${doneCount} / ${subs.length}`;
+      main.appendChild(progress);
+    }
 
     // カウンター式：－ / 現在 / 目標 / ＋ とミニ進捗バー
     if (isCounter) {
@@ -789,7 +951,7 @@ function renderTasks(daily) {
       minusBtn.addEventListener("click", () => changeCount(task.id, -1));
 
       const countLabel = document.createElement("span");
-      countLabel.className = "count-label" + (reached ? " reached" : "");
+      countLabel.className = "count-label" + (canComplete ? " reached" : "");
       countLabel.textContent = `${count} / ${task.targetCount}`;
 
       const plusBtn = document.createElement("button");
@@ -816,33 +978,60 @@ function renderTasks(daily) {
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
-    const toggleBtn = document.createElement("button");
+    // 操作ボタン（アイコン：完了＝チェック / 取り消し＝戻る矢印 / 編集＝ペン / 削除＝×）
+    let toggleBtn;
     if (completed) {
-      toggleBtn.className = "btn btn-small btn-undo";
-      toggleBtn.textContent = "取り消し";
+      toggleBtn = iconButton("undo", "取り消し", "btn btn-small btn-undo btn-sq");
       toggleBtn.addEventListener("click", () => uncompleteTask(task.id, task.rewardPt));
     } else {
-      toggleBtn.className = "btn btn-small btn-complete";
-      toggleBtn.textContent = "完了";
-      toggleBtn.disabled = !reached; // カウンター式は目標達成まで無効
-      if (!reached) toggleBtn.title = `あと${task.targetCount - count}回で完了できるよ`;
+      toggleBtn = iconButton("check", "完了", "btn btn-small btn-complete btn-sq");
+      toggleBtn.disabled = !canComplete;
+      if (!canComplete) {
+        toggleBtn.title = isCounter
+          ? `あと${task.targetCount - count}回で完了できるよ`
+          : "サブタスクを全部終わらせると完了できるよ";
+      }
       toggleBtn.addEventListener("click", () => completeTask(task));
     }
 
-    const editBtn = document.createElement("button");
-    editBtn.className = "btn btn-small btn-icon";
-    editBtn.textContent = "編集";
+    const editBtn = iconButton("pen", "編集", "btn btn-small btn-icon btn-sq");
     editBtn.disabled = completed;
     editBtn.addEventListener("click", () => startEdit(task));
 
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn btn-small btn-icon";
-    delBtn.textContent = "削除";
+    const delBtn = iconButton("x", "削除", "btn btn-small btn-icon btn-sq btn-danger-hover");
     delBtn.disabled = completed;
     delBtn.addEventListener("click", () => deleteTask(task));
 
     actions.append(toggleBtn, editBtn, delBtn);
-    li.append(main, pt, actions);
+    row.append(main, pt, actions);
+    li.appendChild(row);
+
+    // サブタスク一覧（開いているときだけ表示）
+    if (hasSubs && expanded) {
+      const subList = document.createElement("ul");
+      subList.className = "subtask-list";
+      for (const sub of subs) {
+        const subLi = document.createElement("li");
+        subLi.className = "subtask-item";
+
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = !!doneMap[sub.id];
+        checkbox.disabled = completed; // 完了済みの親は操作不可
+        checkbox.addEventListener("change", () => toggleSubtask(task.id, sub.id, checkbox.checked));
+
+        const subName = document.createElement("span");
+        subName.className = "subtask-name" + (doneMap[sub.id] ? " done" : "");
+        subName.textContent = sub.name;
+
+        label.append(checkbox, subName);
+        subLi.appendChild(label);
+        subList.appendChild(subLi);
+      }
+      li.appendChild(subList);
+    }
+
     list.appendChild(li);
   }
 }
@@ -855,7 +1044,7 @@ function renderPresets() {
   for (const preset of presets) {
     const isCounter = preset.type === "counter";
     const li = document.createElement("li");
-    li.className = "task-item preset-item";
+    li.className = "task-item task-row preset-item";
 
     const main = document.createElement("div");
     main.className = "task-main";
@@ -882,14 +1071,10 @@ function renderPresets() {
     addBtn.textContent = "デイリーに追加";
     addBtn.addEventListener("click", () => addPresetToDaily(preset));
 
-    const editBtn = document.createElement("button");
-    editBtn.className = "btn btn-small btn-icon";
-    editBtn.textContent = "編集";
+    const editBtn = iconButton("pen", "編集", "btn btn-small btn-icon btn-sq");
     editBtn.addEventListener("click", () => startPresetEdit(preset));
 
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn btn-small btn-icon";
-    delBtn.textContent = "削除";
+    const delBtn = iconButton("x", "削除", "btn btn-small btn-icon btn-sq btn-danger-hover");
     delBtn.addEventListener("click", () => deletePreset(preset));
 
     actions.append(addBtn, editBtn, delBtn);

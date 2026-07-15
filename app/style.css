@@ -276,12 +276,21 @@ input:focus, select:focus { border-color: var(--accent); }
 
 .task-item {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
+}
+
+/* タスクの1行目（サブタスク一覧はこの下に展開される） */
+.task-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
 }
 .task-item.completed {
   opacity: 0.65;
@@ -355,6 +364,64 @@ input:focus, select:focus { border-color: var(--accent); }
   padding: 6px 8px;
   font-size: 13px;
 }
+
+/* アイコンボタン（正方形・SVG入り） */
+.btn-sq { padding: 7px; }
+.btn-sq svg { width: 16px; height: 16px; display: block; }
+.btn-danger-hover:hover:not(:disabled) { color: var(--red); border-color: var(--red); }
+
+/* ===== サブタスク ===== */
+.subtask-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 4px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.subtask-toggle svg { width: 16px; height: 16px; display: block; }
+.subtask-toggle.open { transform: rotate(90deg); }
+.subtask-toggle:hover { color: var(--text); }
+
+.subtask-progress { font-size: 12px; }
+
+.subtask-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 2px 34px;
+}
+.subtask-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.subtask-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+.subtask-name.done { text-decoration: line-through; color: var(--text-dim); }
+
+/* フォーム内のサブタスク編集 */
+.subtask-editor { margin-top: 12px; }
+.subtask-editor-label { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+.subtask-edit-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.subtask-edit-item { display: flex; gap: 6px; }
+.subtask-edit-item input { flex: 1; }
+.subtask-add-row { display: flex; gap: 6px; }
+.subtask-add-row input { flex: 1; }
 
 .task-empty { color: var(--text-dim); font-size: 14px; text-align: center; padding: 12px 0; }
 

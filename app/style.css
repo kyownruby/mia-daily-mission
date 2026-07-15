@@ -384,7 +384,8 @@ input:focus, select:focus { border-color: var(--accent); }
 .subtask-toggle.open { transform: rotate(90deg); }
 .subtask-toggle:hover { color: var(--text); }
 
-.subtask-progress { font-size: 12px; }
+/* ミッション名の下に積むので、count-label の中央寄せ(横並び用)を左寄せに上書き */
+.subtask-progress { font-size: 12px; text-align: left; min-width: 0; align-self: flex-start; }
 
 .subtask-list {
   list-style: none;

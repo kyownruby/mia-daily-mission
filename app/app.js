@@ -910,37 +910,29 @@ function renderTasks(daily) {
     const row = document.createElement("div");
     row.className = "task-row";
 
-    // サブタスク持ちは開閉トグル（デフォルト閉じ）。行の右端（操作アイコンの隣）に置く
+    // サブタスク持ちは開閉トグル（デフォルト閉じ）。行の右端に固定幅の枠として置く
+    // （hasSubsでも無しでも枠の幅は常に確保し、Pt・操作アイコンの位置が行ごとにズレないようにする）
     const expanded = expandedTasks.has(task.id);
-    let toggle = null;
+    const toggleSlot = document.createElement("div");
+    toggleSlot.className = "subtask-toggle-slot";
     if (hasSubs) {
-      toggle = iconButton("chevron", expanded ? "サブタスクを閉じる" : "サブタスクを開く", "subtask-toggle" + (expanded ? " open" : ""));
+      const toggle = iconButton("chevron", expanded ? "サブタスクを閉じる" : "サブタスクを開く", "subtask-toggle" + (expanded ? " open" : ""));
       toggle.setAttribute("aria-expanded", String(expanded));
       toggle.addEventListener("click", () => {
         if (expandedTasks.has(task.id)) expandedTasks.delete(task.id);
         else expandedTasks.add(task.id);
         render();
       });
+      toggleSlot.appendChild(toggle);
     }
 
     const main = document.createElement("div");
     main.className = "task-main";
 
-    // 1行目：ミッション名 → 報酬Pt（名前の直後に続けて表示）
-    const titleRow = document.createElement("div");
-    titleRow.className = "task-title-row";
-
     const name = document.createElement("span");
     name.className = "task-name";
     name.textContent = task.name;
-    titleRow.appendChild(name);
-
-    const pt = document.createElement("span");
-    pt.className = "task-pt";
-    pt.textContent = `+${task.rewardPt} Pt`;
-    titleRow.appendChild(pt);
-
-    main.appendChild(titleRow);
+    main.appendChild(name);
 
     // 閉じたままでも進捗が分かる表示（例：1 / 3）
     if (hasSubs) {
@@ -982,6 +974,10 @@ function renderTasks(daily) {
       main.appendChild(counterBox);
     }
 
+    const pt = document.createElement("span");
+    pt.className = "task-pt";
+    pt.textContent = `+${task.rewardPt} Pt`;
+
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
@@ -1010,8 +1006,7 @@ function renderTasks(daily) {
     delBtn.addEventListener("click", () => deleteTask(task));
 
     actions.append(toggleBtn, editBtn, delBtn);
-    row.append(main, actions);
-    if (toggle) row.appendChild(toggle);
+    row.append(main, pt, actions, toggleSlot);
     li.appendChild(row);
 
     // サブタスク一覧（開いているときだけ表示）
@@ -1057,26 +1052,19 @@ function renderPresets() {
     const main = document.createElement("div");
     main.className = "task-main";
 
-    // 1行目：プリセット名 → 報酬Pt
-    const titleRow = document.createElement("div");
-    titleRow.className = "task-title-row";
-
     const name = document.createElement("span");
     name.className = "task-name";
     name.textContent = preset.name;
-    titleRow.appendChild(name);
-
-    const pt = document.createElement("span");
-    pt.className = "task-pt";
-    pt.textContent = `+${preset.rewardPt} Pt`;
-    titleRow.appendChild(pt);
-
-    main.appendChild(titleRow);
+    main.appendChild(name);
 
     const info = document.createElement("span");
     info.className = "preset-info";
     info.textContent = isCounter ? `カウンター式 ×${preset.targetCount}` : "1回で完了";
     main.appendChild(info);
+
+    const pt = document.createElement("span");
+    pt.className = "task-pt";
+    pt.textContent = `+${preset.rewardPt} Pt`;
 
     const actions = document.createElement("div");
     actions.className = "task-actions";
@@ -1093,7 +1081,7 @@ function renderPresets() {
     delBtn.addEventListener("click", () => deletePreset(preset));
 
     actions.append(addBtn, editBtn, delBtn);
-    li.append(main, actions);
+    li.append(main, pt, actions);
     list.appendChild(li);
   }
 }

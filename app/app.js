@@ -910,11 +910,19 @@ function renderTasks(daily) {
     const row = document.createElement("div");
     row.className = "task-row";
 
-    // サブタスク持ちは開閉トグル（デフォルト閉じ）。行の右端に固定幅の枠として置く
-    // （hasSubsでも無しでも枠の幅は常に確保し、Pt・操作アイコンの位置が行ごとにズレないようにする）
+    const main = document.createElement("div");
+    main.className = "task-main";
+
+    // 1行目：ミッション名の隣に開閉トグル（サブタスク持ちのときだけ）
+    const titleRow = document.createElement("div");
+    titleRow.className = "task-title-row";
+
+    const name = document.createElement("span");
+    name.className = "task-name";
+    name.textContent = task.name;
+    titleRow.appendChild(name);
+
     const expanded = expandedTasks.has(task.id);
-    const toggleSlot = document.createElement("div");
-    toggleSlot.className = "subtask-toggle-slot";
     if (hasSubs) {
       const toggle = iconButton("chevron", expanded ? "サブタスクを閉じる" : "サブタスクを開く", "subtask-toggle" + (expanded ? " open" : ""));
       toggle.setAttribute("aria-expanded", String(expanded));
@@ -923,16 +931,10 @@ function renderTasks(daily) {
         else expandedTasks.add(task.id);
         render();
       });
-      toggleSlot.appendChild(toggle);
+      titleRow.appendChild(toggle);
     }
 
-    const main = document.createElement("div");
-    main.className = "task-main";
-
-    const name = document.createElement("span");
-    name.className = "task-name";
-    name.textContent = task.name;
-    main.appendChild(name);
+    main.appendChild(titleRow);
 
     // 閉じたままでも進捗が分かる表示（例：1 / 3）
     if (hasSubs) {
@@ -1006,7 +1008,7 @@ function renderTasks(daily) {
     delBtn.addEventListener("click", () => deleteTask(task));
 
     actions.append(toggleBtn, editBtn, delBtn);
-    row.append(main, pt, actions, toggleSlot);
+    row.append(main, pt, actions);
     li.appendChild(row);
 
     // サブタスク一覧（開いているときだけ表示）

@@ -300,6 +300,14 @@ input:focus, select:focus { border-color: var(--accent); }
 .task-item.completed .task-name { text-decoration: line-through; color: var(--text-dim); }
 
 .task-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+/* ミッション名の隣に開閉トグルを添える1行目 */
+.task-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
 .task-name { font-size: 15px; word-break: break-all; }
 
 /* ===== カウンター式ミッション ===== */
@@ -357,16 +365,6 @@ input:focus, select:focus { border-color: var(--accent); }
 }
 
 .task-actions { display: flex; gap: 6px; flex-shrink: 0; }
-
-/* サブタスク開閉トグルの枠（サブタスクが無いミッションでも同じ幅を確保し、
-   Pt・操作アイコンの列が行ごとにズレないようにする） */
-.subtask-toggle-slot {
-  width: 30px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 
 .btn-complete { background: var(--accent-strong); }
 .btn-undo { background: transparent; border: 1px solid var(--green); color: var(--green); }

@@ -926,10 +926,21 @@ function renderTasks(daily) {
     const main = document.createElement("div");
     main.className = "task-main";
 
+    // 1行目：ミッション名 → 報酬Pt（名前の直後に続けて表示）
+    const titleRow = document.createElement("div");
+    titleRow.className = "task-title-row";
+
     const name = document.createElement("span");
     name.className = "task-name";
     name.textContent = task.name;
-    main.appendChild(name);
+    titleRow.appendChild(name);
+
+    const pt = document.createElement("span");
+    pt.className = "task-pt";
+    pt.textContent = `+${task.rewardPt} Pt`;
+    titleRow.appendChild(pt);
+
+    main.appendChild(titleRow);
 
     // 閉じたままでも進捗が分かる表示（例：1 / 3）
     if (hasSubs) {
@@ -971,10 +982,6 @@ function renderTasks(daily) {
       main.appendChild(counterBox);
     }
 
-    const pt = document.createElement("span");
-    pt.className = "task-pt";
-    pt.textContent = `+${task.rewardPt} Pt`;
-
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
@@ -1003,7 +1010,7 @@ function renderTasks(daily) {
     delBtn.addEventListener("click", () => deleteTask(task));
 
     actions.append(toggleBtn, editBtn, delBtn);
-    row.append(main, pt, actions);
+    row.append(main, actions);
     if (toggle) row.appendChild(toggle);
     li.appendChild(row);
 
@@ -1050,19 +1057,26 @@ function renderPresets() {
     const main = document.createElement("div");
     main.className = "task-main";
 
+    // 1行目：プリセット名 → 報酬Pt
+    const titleRow = document.createElement("div");
+    titleRow.className = "task-title-row";
+
     const name = document.createElement("span");
     name.className = "task-name";
     name.textContent = preset.name;
-    main.appendChild(name);
+    titleRow.appendChild(name);
+
+    const pt = document.createElement("span");
+    pt.className = "task-pt";
+    pt.textContent = `+${preset.rewardPt} Pt`;
+    titleRow.appendChild(pt);
+
+    main.appendChild(titleRow);
 
     const info = document.createElement("span");
     info.className = "preset-info";
     info.textContent = isCounter ? `カウンター式 ×${preset.targetCount}` : "1回で完了";
     main.appendChild(info);
-
-    const pt = document.createElement("span");
-    pt.className = "task-pt";
-    pt.textContent = `+${preset.rewardPt} Pt`;
 
     const actions = document.createElement("div");
     actions.className = "task-actions";
@@ -1079,7 +1093,7 @@ function renderPresets() {
     delBtn.addEventListener("click", () => deletePreset(preset));
 
     actions.append(addBtn, editBtn, delBtn);
-    li.append(main, pt, actions);
+    li.append(main, actions);
     list.appendChild(li);
   }
 }

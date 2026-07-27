@@ -29,6 +29,7 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -50,6 +51,9 @@ const LEVEL_TABLE = [50, 80, 120, 170, 230, 300, 380, 470, 570, 680];
 
 // 日次リセットの基準タイムゾーン（仕様書 4.4）
 const BASE_TIMEZONE = "Asia/Tokyo";
+
+// 並び順（order）の採番間隔。間に挿入するときは前後の中間値を使う
+const ORDER_STEP = 1000;
 
 // フォームの報酬Pt初期値（タイプ切り替え時にセット）
 const COUNTER_DEFAULT_PT = 25; // カウンター式の初期Pt
@@ -143,6 +147,51 @@ function presetSubtasks(preset) {
 }
 
 // ============================================================
+// 並び順（order）
+// ============================================================
+
+// createdAt順で渡された配列を order 順に並べ替える。
+// order を持たない旧データは -Infinity 扱いで、createdAt順のまま先頭側に残す
+// （並び替え操作をした時点で全件に order が振られ、以降は order だけで決まる）
+function sortByOrder(items) {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const ao = typeof a.item.order === "number" ? a.item.order : -Infinity;
+      const bo = typeof b.item.order === "number" ? b.item.order : -Infinity;
+      if (ao !== bo) return ao - bo;
+      return a.index - b.index; // 同値・旧データ同士は createdAt 順を維持
+    })
+    .map((x) => x.item);
+}
+
+// 末尾に追加するときの order（既存の最大値 + ORDER_STEP）
+function nextOrder(items) {
+  const orders = items.map((i) => i.order).filter((o) => typeof o === "number");
+  return (orders.length ? Math.max(...orders) : 0) + ORDER_STEP;
+}
+
+// 並び替え後の order を計算する。
+// 移動先の前後の中間値を返す。全件に order が無い／間隔が詰まりすぎた場合は null
+// （呼び出し側で全件振り直しにフォールバックする）
+function orderForPosition(items, toIndex) {
+  const all = items.every((i) => typeof i.order === "number");
+  if (!all) return null;
+
+  const prev = toIndex > 0 ? items[toIndex - 1].order : null;
+  const next = toIndex < items.length ? items[toIndex].order : null;
+
+  if (prev === null && next === null) return ORDER_STEP;
+  if (prev === null) return next - ORDER_STEP;
+  if (next === null) return prev + ORDER_STEP;
+
+  const mid = (prev + next) / 2;
+  // 間隔が詰まって整数で表現できなくなったら振り直しへ
+  if (mid <= prev || mid >= next) return null;
+  return mid;
+}
+
+// ============================================================
 // Firebase 初期化
 // ============================================================
 
@@ -156,6 +205,7 @@ const ICONS = {
   pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>',
+  grip: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>',
 };
 
 // アイコンボタンを作る（aria-label / title 付き）
@@ -365,10 +415,12 @@ function subscribeUserData(uid) {
     (err) => console.error("ユーザーデータの購読エラー:", err)
   );
 
+  // クエリは createdAt 順のまま（order 未設定の旧データも必ず取得されるように）、
+  // 表示順は sortByOrder でクライアント側に決めさせる
   unsubTasks = onSnapshot(
     query(tasksRef(uid), orderBy("createdAt", "asc")),
     (snap) => {
-      tasks = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      tasks = sortByOrder(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       render();
     },
     (err) => console.error("タスクの購読エラー:", err)
@@ -377,7 +429,7 @@ function subscribeUserData(uid) {
   unsubPresets = onSnapshot(
     query(presetsRef(uid), orderBy("createdAt", "asc")),
     (snap) => {
-      presets = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      presets = sortByOrder(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       renderPresets();
     },
     (err) => console.error("プリセットの購読エラー:", err)
@@ -714,7 +766,7 @@ $("task-save-btn").addEventListener("click", async () => {
       showToast("ミッションを更新したよ✏️");
       cancelEdit();
     } else {
-      await addDoc(tasksRef(currentUser.uid), { ...taskData, createdAt: serverTimestamp() });
+      await addDoc(tasksRef(currentUser.uid), { ...taskData, order: nextOrder(tasks), createdAt: serverTimestamp() });
       showToast("ミッションを追加したよ！");
       $("task-name-input").value = "";
       taskSubtaskEditor.clear();
@@ -756,6 +808,39 @@ function cancelEdit() {
   $("task-save-btn").textContent = "追加";
   $("task-cancel-btn").classList.add("hidden");
   $("form-error").classList.add("hidden");
+}
+
+// ============================================================
+// 並び替えの保存
+// ============================================================
+
+// items[fromIndex] を、取り除いた後の配列の toIndex の位置へ移動して保存する。
+// 通常は移動した1件だけを更新（前後の中間値）。
+// order 未設定の旧データが混ざっている／間隔が詰まった場合は全件を振り直す。
+async function reorderItems(colName, items, fromIndex, toIndex) {
+  const rest = items.filter((_, i) => i !== fromIndex);
+  const clamped = Math.max(0, Math.min(toIndex, rest.length));
+  const moved = items[fromIndex];
+
+  const colRef = (id) => doc(db, "users", currentUser.uid, colName, id);
+
+  try {
+    const newOrder = orderForPosition(rest, clamped);
+    if (newOrder !== null) {
+      await updateDoc(colRef(moved.id), { order: newOrder });
+      return;
+    }
+    // フォールバック：新しい並びで全件に order を振り直す
+    const reordered = [...rest.slice(0, clamped), moved, ...rest.slice(clamped)];
+    const batch = writeBatch(db);
+    reordered.forEach((item, i) => {
+      batch.update(colRef(item.id), { order: (i + 1) * ORDER_STEP });
+    });
+    await batch.commit();
+  } catch (err) {
+    console.error("並び替えの保存に失敗:", err);
+    showToast("並び替えの保存に失敗したよ…もう一度試してね");
+  }
 }
 
 async function deleteTask(task) {
@@ -806,7 +891,7 @@ $("preset-save-btn").addEventListener("click", async () => {
       showToast("プリセットを更新したよ✏️");
       cancelPresetEdit();
     } else {
-      await addDoc(presetsRef(currentUser.uid), { ...presetData, createdAt: serverTimestamp() });
+      await addDoc(presetsRef(currentUser.uid), { ...presetData, order: nextOrder(presets), createdAt: serverTimestamp() });
       showToast("プリセットを登録したよ⭐");
       $("preset-name-input").value = "";
       presetSubtaskEditor.clear();
@@ -874,6 +959,7 @@ async function addPresetToDaily(preset) {
       type: preset.type === "counter" ? "counter" : "simple",
       targetCount: preset.type === "counter" ? preset.targetCount : null,
       subtasks: presetSubtasks(preset).map((s) => ({ id: newSubtaskId(), name: s.name })),
+      order: nextOrder(tasks),
       createdAt: serverTimestamp(),
     });
     showToast(`「${preset.name}」をデイリーに追加したよ！`);
@@ -887,7 +973,12 @@ async function addPresetToDaily(preset) {
 // 描画
 // ============================================================
 
+// ドラッグ中は再描画を保留する（掴んでいる要素がDOMごと作り直されるのを防ぐ）
+let isDragging = false;
+let renderPendingDuringDrag = false;
+
 function render() {
+  if (isDragging) { renderPendingDuringDrag = true; return; }
   if (!userData) return;
   const config = getConfig();
   const account = userData.account || { level: 1, totalExp: 0 };
@@ -912,6 +1003,97 @@ function render() {
   lastLevel = level;
 
   renderTasks(daily);
+}
+
+// ============================================================
+// ドラッグ&ドロップ並び替え（ハンドル限定・Pointer Eventsでマウス／タッチ共通）
+// ============================================================
+
+// li に付けるドラッグハンドルを作る。
+// getItems() は現在の並び（配列）、onReorder(from, to) は確定時のコールバック
+function makeDragHandle(listEl, getItems, onReorder) {
+  const handle = iconButton("grip", "ドラッグして並び替え", "drag-handle");
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== undefined && e.button !== 0) return; // 左クリック／タッチのみ
+    const dragEl = handle.closest("li");
+    if (!dragEl) return;
+
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+
+    const fromIndex = [...listEl.children].indexOf(dragEl);
+    let startY = e.clientY;
+    let started = false;
+
+    const onMove = (ev) => {
+      const dy = ev.clientY - startY;
+      // 少し動かすまではドラッグ開始しない（タップ・スクロールとの誤爆防止）
+      if (!started) {
+        if (Math.abs(dy) < 5) return;
+        started = true;
+        isDragging = true;
+        dragEl.classList.add("dragging");
+        listEl.classList.add("sorting");
+      }
+      dragEl.style.transform = `translateY(${dy}px)`;
+
+      // 進行方向の端が隣の要素の中心を越えたらDOM上で入れ替える
+      // （中心同士で比べると1行ぶん動かすまで反応しないので、端で判定する）
+      const rect = dragEl.getBoundingClientRect();
+      const prev = dragEl.previousElementSibling;
+      const next = dragEl.nextElementSibling;
+
+      let target = null;
+      let insertBefore = false;
+      if (prev) {
+        const r = prev.getBoundingClientRect();
+        if (rect.top < r.top + r.height / 2) { target = prev; insertBefore = true; }
+      }
+      if (!target && next) {
+        const r = next.getBoundingClientRect();
+        if (rect.bottom > r.top + r.height / 2) { target = next; insertBefore = false; }
+      }
+
+      if (target) {
+        // 入れ替えで基準位置がずれるぶん、見た目が指の下から動かないよう補正する
+        const before = dragEl.getBoundingClientRect().top;
+        dragEl.style.transform = "";
+        if (insertBefore) listEl.insertBefore(dragEl, target);
+        else listEl.insertBefore(dragEl, target.nextElementSibling);
+        const after = dragEl.getBoundingClientRect().top;
+        const newDy = before - after;
+        startY = ev.clientY - newDy;
+        dragEl.style.transform = `translateY(${newDy}px)`;
+      }
+    };
+
+    const onUp = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
+      dragEl.style.transform = "";
+      dragEl.classList.remove("dragging");
+      listEl.classList.remove("sorting");
+
+      if (!started) return;
+      isDragging = false;
+
+      const toIndex = [...listEl.children].indexOf(dragEl);
+      if (toIndex !== -1 && toIndex !== fromIndex) {
+        onReorder(getItems(), fromIndex, toIndex);
+      } else if (renderPendingDuringDrag) {
+        renderPendingDuringDrag = false;
+        render();
+      }
+    };
+
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
+  });
+
+  return handle;
 }
 
 function renderTasks(daily) {
@@ -943,6 +1125,8 @@ function renderTasks(daily) {
 
     const row = document.createElement("div");
     row.className = "task-row";
+
+    row.appendChild(makeDragHandle(list, () => tasks, (items, from, to) => reorderItems("tasks", items, from, to)));
 
     const main = document.createElement("div");
     main.className = "task-main";
@@ -1084,6 +1268,8 @@ function renderPresets() {
     const isCounter = preset.type === "counter";
     const li = document.createElement("li");
     li.className = "task-item task-row preset-item";
+
+    li.appendChild(makeDragHandle(list, () => presets, (items, from, to) => reorderItems("presets", items, from, to)));
 
     const main = document.createElement("div");
     main.className = "task-main";

@@ -1020,13 +1020,14 @@ function makeDragHandle(listEl, getItems, onReorder) {
     if (!dragEl) return;
 
     e.preventDefault();
-    handle.setPointerCapture(e.pointerId);
 
     const fromIndex = [...listEl.children].indexOf(dragEl);
+    const pointerId = e.pointerId;
     let startY = e.clientY;
     let started = false;
 
     const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
       const dy = ev.clientY - startY;
       // 少し動かすまではドラッグ開始しない（タップ・スクロールとの誤爆防止）
       if (!started) {
@@ -1040,24 +1041,28 @@ function makeDragHandle(listEl, getItems, onReorder) {
 
       // 進行方向の端が隣の要素の中心を越えたらDOM上で入れ替える
       // （中心同士で比べると1行ぶん動かすまで反応しないので、端で判定する）
-      const rect = dragEl.getBoundingClientRect();
-      const prev = dragEl.previousElementSibling;
-      const next = dragEl.nextElementSibling;
+      // 速いドラッグでは1回のイベントで複数行ぶん動くことがあるため、
+      // 「もう入れ替える相手がいない」状態になるまで繰り返して追いつかせる
+      // （1回だけだと処理が追いつかず、行の間に挟まったまま詰まることがある）
+      for (let guard = 0; guard < listEl.children.length; guard++) {
+        const rect = dragEl.getBoundingClientRect();
+        const prev = dragEl.previousElementSibling;
+        const next = dragEl.nextElementSibling;
 
-      let target = null;
-      let insertBefore = false;
-      if (prev) {
-        const r = prev.getBoundingClientRect();
-        if (rect.top < r.top + r.height / 2) { target = prev; insertBefore = true; }
-      }
-      if (!target && next) {
-        const r = next.getBoundingClientRect();
-        if (rect.bottom > r.top + r.height / 2) { target = next; insertBefore = false; }
-      }
+        let target = null;
+        let insertBefore = false;
+        if (prev) {
+          const r = prev.getBoundingClientRect();
+          if (rect.top < r.top + r.height / 2) { target = prev; insertBefore = true; }
+        }
+        if (!target && next) {
+          const r = next.getBoundingClientRect();
+          if (rect.bottom > r.top + r.height / 2) { target = next; insertBefore = false; }
+        }
+        if (!target) break;
 
-      if (target) {
         // 入れ替えで基準位置がずれるぶん、見た目が指の下から動かないよう補正する
-        const before = dragEl.getBoundingClientRect().top;
+        const before = rect.top;
         dragEl.style.transform = "";
         if (insertBefore) listEl.insertBefore(dragEl, target);
         else listEl.insertBefore(dragEl, target.nextElementSibling);
@@ -1068,10 +1073,11 @@ function makeDragHandle(listEl, getItems, onReorder) {
       }
     };
 
-    const onUp = () => {
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onUp);
-      handle.removeEventListener("pointercancel", onUp);
+    const onUp = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       dragEl.style.transform = "";
       dragEl.classList.remove("dragging");
       listEl.classList.remove("sorting");
@@ -1088,9 +1094,13 @@ function makeDragHandle(listEl, getItems, onReorder) {
       }
     };
 
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp);
-    handle.addEventListener("pointercancel", onUp);
+    // リスナーは window に付ける。
+    // ハンドル側に付けてポインターキャプチャで受ける方式だと、入れ替えの insertBefore
+    // （＝内部的には取り外して挿し直し）でキャプチャが解除され、以降のイベントが
+    // 届かなくなって行の間に挟まったまま「詰まる」ため
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   });
 
   return handle;

@@ -206,6 +206,24 @@ function orderForPosition(items, toIndex) {
   return mid;
 }
 
+// 期限が早い順（期限なしは末尾）に収まる位置の order を返す。
+// メインミッションの追加・移動・期限変更のときだけ使う（ドラッグでの手動並びは維持する）
+// items は現在の並び（order順）。excludeId を渡すとその要素を除いて位置を決める
+function orderForDueDate(items, dueDate, excludeId = null) {
+  const list = excludeId ? items.filter((i) => i.id !== excludeId) : items;
+  const key = (d) => d || "9999-12-31"; // 期限なしは一番後ろ扱い
+  const k = key(dueDate);
+
+  let index = list.length;
+  for (let i = 0; i < list.length; i++) {
+    if (key(list[i].dueDate) > k) { index = i; break; }
+  }
+
+  const order = orderForPosition(list, index);
+  // 中間値が作れない稀なケースは末尾へ（並びが壊れるより安全）
+  return order === null ? nextOrder(list) : order;
+}
+
 // ============================================================
 // Firebase 初期化
 // ============================================================
@@ -1103,7 +1121,12 @@ $("main-save-btn").addEventListener("click", async () => {
         showMainFormError("完了済みのミッションは編集できないよ。先に取り消してね");
         return;
       }
-      await updateDoc(mainTaskRef(editingMainId), taskData);
+      // 期限を変えたときだけ、期限順の位置に並べ直す（名前だけの編集では動かさない）
+      const dueChanged = editing && (editing.dueDate ?? null) !== dueDate;
+      const patch = dueChanged
+        ? { ...taskData, order: orderForDueDate(mainTasks, dueDate, editingMainId) }
+        : taskData;
+      await updateDoc(mainTaskRef(editingMainId), patch);
       showToast("メインミッションを更新したよ✏️");
       cancelMainEdit();
     } else {
@@ -1111,7 +1134,7 @@ $("main-save-btn").addEventListener("click", async () => {
         ...taskData,
         currentCount: 0,
         completed: false,
-        order: nextOrder(mainTasks),
+        order: orderForDueDate(mainTasks, dueDate),
         createdAt: serverTimestamp(),
       });
       showToast("メインミッションを追加したよ🏆");
@@ -1183,7 +1206,7 @@ async function moveTaskToMain(task) {
       dueDate: task.dueDate ?? null, // デイリー側で保持していた期限を復元（仕様書 6）
       currentCount: 0,
       completed: false,
-      order: nextOrder(mainTasks),
+      order: orderForDueDate(mainTasks, task.dueDate ?? null), // 期限順の位置に入れる
       createdAt: serverTimestamp(),
     });
     batch.delete(doc(db, "users", currentUser.uid, "tasks", task.id));
@@ -1360,7 +1383,7 @@ async function addPresetToMain(preset) {
       dueDate,
       currentCount: 0,
       completed: false,
-      order: nextOrder(mainTasks),
+      order: orderForDueDate(mainTasks, dueDate), // 期限順の位置に入れる
       createdAt: serverTimestamp(),
     });
     showToast(`「${preset.name}」をメインに追加したよ🏆`);

@@ -206,22 +206,19 @@ function orderForPosition(items, toIndex) {
   return mid;
 }
 
-// 期限が早い順（期限なしは末尾）に収まる位置の order を返す。
-// メインミッションの追加・移動・期限変更のときだけ使う（ドラッグでの手動並びは維持する）
-// items は現在の並び（order順）。excludeId を渡すとその要素を除いて位置を決める
-function orderForDueDate(items, dueDate, excludeId = null) {
-  const list = excludeId ? items.filter((i) => i.id !== excludeId) : items;
+// メインミッションを期限が早い順（期限なしは末尾）に並べたときの、
+// ミッションIDごとの order を Map で返す。
+// 期限を設定・変更したタイミングで一覧全体を並べ直すのに使う
+// （同じ期限どうしは今の並びを維持：sort は安定なので入力順が保たれる）
+function mainDueOrders(list) {
   const key = (d) => d || "9999-12-31"; // 期限なしは一番後ろ扱い
-  const k = key(dueDate);
-
-  let index = list.length;
-  for (let i = 0; i < list.length; i++) {
-    if (key(list[i].dueDate) > k) { index = i; break; }
-  }
-
-  const order = orderForPosition(list, index);
-  // 中間値が作れない稀なケースは末尾へ（並びが壊れるより安全）
-  return order === null ? nextOrder(list) : order;
+  const sorted = [...list].sort((a, b) => {
+    const ka = key(a.dueDate), kb = key(b.dueDate);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+  const orders = new Map();
+  sorted.forEach((t, i) => orders.set(t.id, (i + 1) * ORDER_STEP));
+  return orders;
 }
 
 // ============================================================
@@ -1087,28 +1084,42 @@ async function toggleMainSubtask(taskId, subId, checked) {
   }
 }
 
-// 期限の早い順（期限なしは末尾）で一覧をまとめて並べ直す。
-// 追加・移動時の自動挿入は新しく入るものだけが対象なので、
-// それ以前からある並びを整えたいときはこれを使う
-async function sortMainByDue() {
-  if (mainTasks.length < 2) return;
-  const key = (d) => d || "9999-12-31";
-  // sort は安定なので、同じ期限どうしは今の並びが保たれる
-  const sorted = [...mainTasks].sort((a, b) => {
-    const ka = key(a.dueDate), kb = key(b.dueDate);
-    return ka < kb ? -1 : ka > kb ? 1 : 0;
-  });
-  try {
-    const batch = writeBatch(db);
-    sorted.forEach((t, i) => batch.update(mainTaskRef(t.id), { order: (i + 1) * ORDER_STEP }));
-    await batch.commit();
-    showToast("期限が早い順に並べ直したよ📅");
-  } catch (err) {
-    console.error("期限順の並べ替えに失敗:", err);
-    showToast("並べ替えに失敗したよ…もう一度試してね");
+// 既存ミッションの order を期限順に更新する差分を batch に積む。
+// order が変わらないものは書き込まない（無駄な更新を避ける）
+function stageMainDueOrders(batch, orders) {
+  for (const t of mainTasks) {
+    const o = orders.get(t.id);
+    if (o !== undefined && o !== t.order) batch.update(mainTaskRef(t.id), { order: o });
   }
 }
-$("main-sort-btn").addEventListener("click", sortMainByDue);
+
+// メインミッションを1件追加する。
+// 期限つきなら一覧全体を期限順に並べ直し、期限なしなら末尾に足す。
+// extraOps は同じバッチで一緒に実行したい処理（デイリーからの引っ越しでの削除など）
+async function addMainMission(taskData, dueDate, extraOps = null) {
+  const newRef = doc(mainTasksRef(currentUser.uid));
+  const batch = writeBatch(db);
+
+  let order;
+  if (dueDate) {
+    // 新規ぶんも含めて期限順の order を計算し、ズレる既存ミッションだけ更新する
+    const orders = mainDueOrders([...mainTasks, { id: newRef.id, dueDate }]);
+    order = orders.get(newRef.id);
+    stageMainDueOrders(batch, orders);
+  } else {
+    order = nextOrder(mainTasks); // 期限なしは末尾でよい
+  }
+
+  batch.set(newRef, {
+    ...taskData,
+    currentCount: 0,
+    completed: false,
+    order,
+    createdAt: serverTimestamp(),
+  });
+  if (extraOps) extraOps(batch);
+  await batch.commit();
+}
 
 async function deleteMainTask(task) {
   if (task.completed) {
@@ -1166,22 +1177,22 @@ $("main-save-btn").addEventListener("click", async () => {
         showMainFormError("完了済みのミッションは編集できないよ。先に取り消してね");
         return;
       }
-      // 期限を変えたときだけ、期限順の位置に並べ直す（名前だけの編集では動かさない）
+      // 期限を変えたときは一覧全体を期限順に並べ直す（名前だけの編集では動かさない）
       const dueChanged = editing && (editing.dueDate ?? null) !== dueDate;
-      const patch = dueChanged
-        ? { ...taskData, order: orderForDueDate(mainTasks, dueDate, editingMainId) }
-        : taskData;
-      await updateDoc(mainTaskRef(editingMainId), patch);
+      if (dueChanged) {
+        const merged = mainTasks.map((t) => (t.id === editingMainId ? { ...t, dueDate } : t));
+        const orders = mainDueOrders(merged);
+        const batch = writeBatch(db);
+        batch.update(mainTaskRef(editingMainId), { ...taskData, order: orders.get(editingMainId) });
+        stageMainDueOrders(batch, orders);
+        await batch.commit();
+      } else {
+        await updateDoc(mainTaskRef(editingMainId), taskData);
+      }
       showToast("メインミッションを更新したよ✏️");
       cancelMainEdit();
     } else {
-      await addDoc(mainTasksRef(currentUser.uid), {
-        ...taskData,
-        currentCount: 0,
-        completed: false,
-        order: orderForDueDate(mainTasks, dueDate),
-        createdAt: serverTimestamp(),
-      });
+      await addMainMission(taskData, dueDate);
       showToast("メインミッションを追加したよ🏆");
       $("main-name-input").value = "";
       mainSubtaskEditor.clear();
@@ -1240,22 +1251,18 @@ async function moveTaskToMain(task) {
     return;
   }
   try {
-    const batch = writeBatch(db);
-    const newRef = doc(mainTasksRef(currentUser.uid));
-    batch.set(newRef, {
+    const dueDate = task.dueDate ?? null; // デイリー側で保持していた期限を復元（仕様書 6）
+    // 追加とデイリー側の削除を同じバッチで実行（引っ越しが途中で切れないように）
+    await addMainMission({
       name: task.name,
       rewardPt: task.rewardPt,
       type: task.type === "counter" ? "counter" : "simple",
       targetCount: task.type === "counter" ? task.targetCount : null,
       subtasks: taskSubtasks(task).map((s) => ({ id: s.id, name: s.name, done: false })),
-      dueDate: task.dueDate ?? null, // デイリー側で保持していた期限を復元（仕様書 6）
-      currentCount: 0,
-      completed: false,
-      order: orderForDueDate(mainTasks, task.dueDate ?? null), // 期限順の位置に入れる
-      createdAt: serverTimestamp(),
+      dueDate,
+    }, dueDate, (batch) => {
+      batch.delete(doc(db, "users", currentUser.uid, "tasks", task.id));
     });
-    batch.delete(doc(db, "users", currentUser.uid, "tasks", task.id));
-    await batch.commit();
     if (editingTaskId === task.id) cancelEdit();
     showToast(`「${task.name}」をメインへ移動したよ🏆`);
   } catch (err) {
@@ -1419,18 +1426,14 @@ async function addPresetToDaily(preset) {
 async function addPresetToMain(preset) {
   try {
     const dueDate = typeof preset.dueInDays === "number" ? addDays(todayStr(), preset.dueInDays) : null;
-    await addDoc(mainTasksRef(currentUser.uid), {
+    await addMainMission({
       name: preset.name,
       rewardPt: preset.rewardPt,
       type: preset.type === "counter" ? "counter" : "simple",
       targetCount: preset.type === "counter" ? preset.targetCount : null,
       subtasks: presetSubtasks(preset).map((s) => ({ id: newSubtaskId(), name: s.name, done: false })),
       dueDate,
-      currentCount: 0,
-      completed: false,
-      order: orderForDueDate(mainTasks, dueDate), // 期限順の位置に入れる
-      createdAt: serverTimestamp(),
-    });
+    }, dueDate);
     showToast(`「${preset.name}」をメインに追加したよ🏆`);
   } catch (err) {
     console.error("メインへの追加に失敗:", err);

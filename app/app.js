@@ -136,6 +136,21 @@ function normalizedDaily(data, today) {
   };
 }
 
+// "YYYY-MM-DD" に日数を加算して "YYYY-MM-DD" で返す（タイムゾーン非依存の純粋計算）
+function addDays(dateStr, days) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${dt.getUTCFullYear()}-${mm}-${dd}`;
+}
+
+// メインミッションの累積Ptから「メイン由来のEXP」を算出する（仕様書 4.2）
+// 25Ptごとに10EXP。デイリーの100Pt達成ボーナスは適用しない・上限なし
+function mainExpForPt(pt, config) {
+  return Math.floor(pt / config.stepPt) * config.expPerStep;
+}
+
 // タスクのサブタスク配列（simpleのみ。無ければ空配列）
 function taskSubtasks(task) {
   return task.type !== "counter" && Array.isArray(task.subtasks) ? task.subtasks : [];
@@ -206,6 +221,7 @@ const ICONS = {
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>',
   grip: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>',
+  move: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4 3 8l4 4"/><path d="M3 8h13"/><path d="m17 12 4 4-4 4"/><path d="M21 16H8"/></svg>',
 };
 
 // アイコンボタンを作る（aria-label / title 付き）
@@ -240,18 +256,23 @@ const db = initializeFirestore(firebaseApp, {
 let currentUser = null;
 let userData = null;   // users/{uid} ドキュメントの内容
 let tasks = [];        // tasks サブコレクションの内容
+let mainTasks = [];    // mainTasks サブコレクションの内容（メインミッション）
 let presets = [];      // presets サブコレクションの内容
 let lastLevel = null;  // レベルアップ演出用
 let editingTaskId = null;
+let editingMainId = null;
 let editingPresetId = null;
 let expandedTasks = new Set(); // サブタスクを開いているタスクID（デフォルトは閉じ）
+let activeTab = "daily"; // "daily" | "main" | "preset"
 let authMode = "login"; // "login" | "signup"
 let unsubUserDoc = null;
 let unsubTasks = null;
+let unsubMain = null;
 let unsubPresets = null;
 
 const userRef = (uid) => doc(db, "users", uid);
 const tasksRef = (uid) => collection(db, "users", uid, "tasks");
+const mainTasksRef = (uid) => collection(db, "users", uid, "mainTasks");
 const presetsRef = (uid) => collection(db, "users", uid, "presets");
 
 // ============================================================
@@ -359,11 +380,14 @@ onAuthStateChanged(auth, async (user) => {
     unsubscribeAll();
     userData = null;
     tasks = [];
+    mainTasks = [];
     presets = [];
     lastLevel = null;
     expandedTasks = new Set();
     cancelEdit();
+    cancelMainEdit();
     cancelPresetEdit();
+    setActiveTab("daily");
     $("app-view").classList.add("hidden");
     $("auth-view").classList.remove("hidden");
   }
@@ -372,7 +396,23 @@ onAuthStateChanged(auth, async (user) => {
 function unsubscribeAll() {
   if (unsubUserDoc) { unsubUserDoc(); unsubUserDoc = null; }
   if (unsubTasks) { unsubTasks(); unsubTasks = null; }
+  if (unsubMain) { unsubMain(); unsubMain = null; }
   if (unsubPresets) { unsubPresets(); unsubPresets = null; }
+}
+
+// ============================================================
+// タブ切り替え（ステータスエリアは共通で常に表示）
+// ============================================================
+
+function setActiveTab(tab) {
+  activeTab = tab;
+  for (const name of ["daily", "main", "preset"]) {
+    $(`tab-${name}`).classList.toggle("hidden", name !== tab);
+    $(`tab-btn-${name}`).classList.toggle("active", name === tab);
+  }
+}
+for (const name of ["daily", "main", "preset"]) {
+  $(`tab-btn-${name}`).addEventListener("click", () => setActiveTab(name));
 }
 
 // ============================================================
@@ -424,6 +464,15 @@ function subscribeUserData(uid) {
       render();
     },
     (err) => console.error("タスクの購読エラー:", err)
+  );
+
+  unsubMain = onSnapshot(
+    query(mainTasksRef(uid), orderBy("createdAt", "asc")),
+    (snap) => {
+      mainTasks = sortByOrder(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      renderMainSafe();
+    },
+    (err) => console.error("メインミッションの購読エラー:", err)
   );
 
   unsubPresets = onSnapshot(
@@ -493,7 +542,8 @@ async function completeTask(task) {
       const { level } = levelFromExp(newTotalExp);
 
       tx.update(userRef(uid), {
-        account: { level, totalExp: newTotalExp },
+        // account はスプレッドで保持（mainTotalPt など他のフィールドを消さないため）
+        account: { ...data.account, level, totalExp: newTotalExp },
         daily: {
           ...daily,
           todayPt: newPt,
@@ -538,7 +588,8 @@ async function uncompleteTask(taskId, rewardPt) {
       delete nextApplied[taskId];
 
       tx.update(userRef(uid), {
-        account: { level, totalExp: newTotalExp },
+        // account はスプレッドで保持（mainTotalPt など他のフィールドを消さないため）
+        account: { ...data.account, level, totalExp: newTotalExp },
         daily: {
           ...daily,
           todayPt: newPt,
@@ -634,6 +685,7 @@ function selectedType(radioName) {
   return document.querySelector(`input[name="${radioName}"]:checked`).value;
 }
 const selectedTaskType = () => selectedType("task-type");
+const selectedMainType = () => selectedType("main-type");
 const selectedPresetType = () => selectedType("preset-type");
 
 // タイプ切り替え：目標回数入力の表示切り替え＋報酬Pt初期値のセット
@@ -650,6 +702,7 @@ function bindTypeToggle(radioName, targetLabelId, ptSelectId, isEditing) {
   }
 }
 bindTypeToggle("task-type", "task-target-label", "task-pt-select", () => editingTaskId !== null);
+bindTypeToggle("main-type", "main-target-label", "main-pt-select", () => editingMainId !== null);
 bindTypeToggle("preset-type", "preset-target-label", "preset-pt-select", () => editingPresetId !== null);
 
 // サブタスク編集欄は「1回で完了」のときだけ表示
@@ -660,11 +713,34 @@ for (const radio of document.querySelectorAll('input[name="task-type"]')) {
   radio.addEventListener("change", updateSubtaskEditorVisibility);
 }
 
+function updateMainSubtaskEditorVisibility() {
+  mainSubtaskEditor.setVisible(selectedMainType() === "simple");
+}
+for (const radio of document.querySelectorAll('input[name="main-type"]')) {
+  radio.addEventListener("change", updateMainSubtaskEditorVisibility);
+}
+
 function updatePresetSubtaskEditorVisibility() {
   presetSubtaskEditor.setVisible(selectedPresetType() === "simple");
 }
 for (const radio of document.querySelectorAll('input[name="preset-type"]')) {
   radio.addEventListener("change", updatePresetSubtaskEditorVisibility);
+}
+
+// 期限入力の表示切り替え（メイン＝日付／プリセット＝日数）
+function bindDueModeToggle(radioName, inputLabelId, showValue) {
+  for (const radio of document.querySelectorAll(`input[name="${radioName}"]`)) {
+    radio.addEventListener("change", () => {
+      $(inputLabelId).classList.toggle("hidden", selectedType(radioName) !== showValue);
+    });
+  }
+}
+bindDueModeToggle("main-due-mode", "main-due-date-label", "date");
+bindDueModeToggle("preset-due-mode", "preset-due-days-label", "days");
+
+function setDueMode(radioName, inputLabelId, mode, showValue) {
+  document.querySelector(`input[name="${radioName}"][value="${mode}"]`).checked = true;
+  $(inputLabelId).classList.toggle("hidden", mode !== showValue);
 }
 
 // ============================================================
@@ -717,7 +793,8 @@ function makeSubtaskEditor(prefix) {
   });
 
   return {
-    get: () => items.map((s) => ({ id: s.id, name: s.name.trim() })).filter((s) => s.name),
+    // id/name 以外のフィールド（メインミッションの done など）は編集中も保持する
+    get: () => items.map((s) => ({ ...s, name: s.name.trim() })).filter((s) => s.name),
     set: (arr) => { items = arr.map((s) => ({ ...s })); render(); },
     clear: () => { items = []; render(); },
     setVisible: (visible) => editorEl.classList.toggle("hidden", !visible),
@@ -725,6 +802,7 @@ function makeSubtaskEditor(prefix) {
 }
 
 const taskSubtaskEditor = makeSubtaskEditor("subtask");
+const mainSubtaskEditor = makeSubtaskEditor("main-subtask");
 const presetSubtaskEditor = makeSubtaskEditor("preset-subtask");
 
 // ミッション／プリセット共通の入力チェック。OKなら null、NGならエラーメッセージを返す
@@ -860,6 +938,293 @@ async function deleteTask(task) {
 }
 
 // ============================================================
+// メインミッション（長期目標）
+// - 進捗（currentCount / subtasks[].done / completed）はタスク文書側に保持
+//   → daily に置かないので、日次リセットの影響を自然に受けない
+// - Pt はデイリーの100Pt上限とは別枠（account.mainTotalPt に累積）
+// - EXP は floor(mainTotalPt / 25) × 10（デイリーボーナスは適用しない）
+// ============================================================
+
+const mainTaskRef = (id) => doc(db, "users", currentUser.uid, "mainTasks", id);
+
+// メインミッションの完了：Pt を mainTotalPt に加算し、差分EXPを累積へ反映
+async function completeMainTask(task) {
+  const uid = currentUser.uid;
+  try {
+    await runTransaction(db, async (tx) => {
+      const taskSnap = await tx.get(mainTaskRef(task.id));
+      const userSnap = await tx.get(userRef(uid));
+      if (!taskSnap.exists() || !userSnap.exists()) return;
+      const t = taskSnap.data();
+      const data = userSnap.data();
+      const config = { ...DEFAULT_CONFIG, ...data.config };
+
+      if (t.completed) return; // 二重完了ガード
+      if (t.type === "counter" && (t.currentCount || 0) < t.targetCount) return;
+      const subs = taskSubtasks(t);
+      if (subs.length > 0 && !subs.every((s) => s.done)) return;
+
+      const prevMainPt = data.account.mainTotalPt || 0;
+      const newMainPt = prevMainPt + t.rewardPt;
+      const expDelta = mainExpForPt(newMainPt, config) - mainExpForPt(prevMainPt, config);
+      const newTotalExp = Math.max(0, data.account.totalExp + expDelta);
+      const { level } = levelFromExp(newTotalExp);
+
+      tx.update(userRef(uid), {
+        account: { ...data.account, level, totalExp: newTotalExp, mainTotalPt: newMainPt },
+      });
+      tx.update(mainTaskRef(task.id), { completed: true });
+    });
+  } catch (err) {
+    console.error("メインミッションの完了に失敗:", err);
+    showToast("完了の保存に失敗したよ…もう一度試してね");
+  }
+}
+
+// メインミッションの取り消し：Pt・EXP・レベルを巻き戻す
+async function uncompleteMainTask(task) {
+  const uid = currentUser.uid;
+  try {
+    await runTransaction(db, async (tx) => {
+      const taskSnap = await tx.get(mainTaskRef(task.id));
+      const userSnap = await tx.get(userRef(uid));
+      if (!taskSnap.exists() || !userSnap.exists()) return;
+      const t = taskSnap.data();
+      const data = userSnap.data();
+      const config = { ...DEFAULT_CONFIG, ...data.config };
+
+      if (!t.completed) return;
+
+      const prevMainPt = data.account.mainTotalPt || 0;
+      const newMainPt = Math.max(0, prevMainPt - t.rewardPt);
+      const expDelta = mainExpForPt(newMainPt, config) - mainExpForPt(prevMainPt, config);
+      const newTotalExp = Math.max(0, data.account.totalExp + expDelta);
+      const { level } = levelFromExp(newTotalExp);
+
+      tx.update(userRef(uid), {
+        account: { ...data.account, level, totalExp: newTotalExp, mainTotalPt: newMainPt },
+      });
+      tx.update(mainTaskRef(task.id), { completed: false });
+    });
+  } catch (err) {
+    console.error("メインミッションの取り消しに失敗:", err);
+    showToast("取り消しの保存に失敗したよ…もう一度試してね");
+  }
+}
+
+// メインミッションのカウント操作（±1、0未満にはしない）
+async function changeMainCount(taskId, delta) {
+  try {
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(mainTaskRef(taskId));
+      if (!snap.exists()) return;
+      const t = snap.data();
+      if (t.completed) return;
+      const next = Math.max(0, (t.currentCount || 0) + delta);
+      if (next === (t.currentCount || 0)) return;
+      tx.update(mainTaskRef(taskId), { currentCount: next });
+    });
+  } catch (err) {
+    console.error("メインのカウント更新に失敗:", err);
+    showToast("カウントの保存に失敗したよ…もう一度試してね");
+  }
+}
+
+// メインミッションのサブタスク完了トグル（done はタスク文書側に保持）
+async function toggleMainSubtask(taskId, subId, checked) {
+  try {
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(mainTaskRef(taskId));
+      if (!snap.exists()) return;
+      const t = snap.data();
+      if (t.completed) return;
+      const subtasks = (t.subtasks || []).map((s) => (s.id === subId ? { ...s, done: checked } : s));
+      tx.update(mainTaskRef(taskId), { subtasks });
+    });
+  } catch (err) {
+    console.error("メインのサブタスク更新に失敗:", err);
+    showToast("サブタスクの保存に失敗したよ…もう一度試してね");
+  }
+}
+
+async function deleteMainTask(task) {
+  if (task.completed) {
+    showToast("完了済みのミッションは削除できないよ。先に取り消してね");
+    return;
+  }
+  try {
+    await deleteDoc(mainTaskRef(task.id));
+    if (editingMainId === task.id) cancelMainEdit();
+    showToast("メインミッションを削除したよ");
+  } catch (err) {
+    console.error("メインミッションの削除に失敗:", err);
+    showToast("削除に失敗したよ…もう一度試してね");
+  }
+}
+
+// ============================================================
+// メインミッションの追加・編集フォーム
+// ============================================================
+
+function showMainFormError(msg) {
+  $("main-form-error").textContent = msg;
+  $("main-form-error").classList.remove("hidden");
+}
+
+$("main-save-btn").addEventListener("click", async () => {
+  $("main-form-error").classList.add("hidden");
+  const name = $("main-name-input").value.trim();
+  const rewardPt = Number($("main-pt-select").value);
+  const type = selectedMainType();
+  const targetCount = Number($("main-target-input").value);
+  const dueMode = selectedType("main-due-mode");
+  const dueDate = dueMode === "date" ? $("main-due-input").value : null;
+
+  const errMsg = validateMissionInput(name, rewardPt, type, targetCount, getConfig());
+  if (errMsg) {
+    showMainFormError(errMsg);
+    return;
+  }
+  if (dueMode === "date" && !dueDate) {
+    showMainFormError("期限の日付を選んでね");
+    return;
+  }
+
+  // サブタスクは simple のみ。編集中は既存の done を保持し、新規行は false
+  const subtasks = type === "simple"
+    ? mainSubtaskEditor.get().map((s) => ({ id: s.id, name: s.name, done: s.done || false }))
+    : [];
+  const taskData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null, subtasks, dueDate };
+
+  try {
+    if (editingMainId) {
+      const editing = mainTasks.find((t) => t.id === editingMainId);
+      if (editing && editing.completed) {
+        showMainFormError("完了済みのミッションは編集できないよ。先に取り消してね");
+        return;
+      }
+      await updateDoc(mainTaskRef(editingMainId), taskData);
+      showToast("メインミッションを更新したよ✏️");
+      cancelMainEdit();
+    } else {
+      await addDoc(mainTasksRef(currentUser.uid), {
+        ...taskData,
+        currentCount: 0,
+        completed: false,
+        order: nextOrder(mainTasks),
+        createdAt: serverTimestamp(),
+      });
+      showToast("メインミッションを追加したよ🏆");
+      $("main-name-input").value = "";
+      mainSubtaskEditor.clear();
+    }
+  } catch (err) {
+    console.error("メインミッションの保存に失敗:", err);
+    showMainFormError("保存に失敗したよ…もう一度試してね");
+  }
+});
+
+$("main-cancel-btn").addEventListener("click", cancelMainEdit);
+
+function setMainFormType(type) {
+  document.querySelector(`input[name="main-type"][value="${type}"]`).checked = true;
+  $("main-target-label").classList.toggle("hidden", type !== "counter");
+}
+
+function startMainEdit(task) {
+  editingMainId = task.id;
+  $("main-form-title").textContent = "✏️ メインミッションを編集";
+  $("main-name-input").value = task.name;
+  $("main-pt-select").value = String(task.rewardPt);
+  setMainFormType(task.type === "counter" ? "counter" : "simple");
+  if (task.type === "counter") $("main-target-input").value = String(task.targetCount);
+  setDueMode("main-due-mode", "main-due-date-label", task.dueDate ? "date" : "none", "date");
+  $("main-due-input").value = task.dueDate || "";
+  mainSubtaskEditor.set(taskSubtasks(task));
+  updateMainSubtaskEditorVisibility();
+  $("main-save-btn").textContent = "保存";
+  $("main-cancel-btn").classList.remove("hidden");
+  $("main-name-input").focus();
+}
+
+function cancelMainEdit() {
+  editingMainId = null;
+  $("main-form-title").textContent = "➕ メインミッションを追加";
+  $("main-name-input").value = "";
+  setMainFormType("simple");
+  setDueMode("main-due-mode", "main-due-date-label", "none", "date");
+  $("main-due-input").value = "";
+  mainSubtaskEditor.clear();
+  updateMainSubtaskEditorVisibility();
+  $("main-save-btn").textContent = "追加";
+  $("main-cancel-btn").classList.add("hidden");
+  $("main-form-error").classList.add("hidden");
+}
+
+// ============================================================
+// デイリー ⇔ メイン のミッション移動（引っ越し：元からは消える）
+// 設定（名前・タイプ・Pt・目標回数・サブタスク構成・期限）は保持し、進捗はリセット
+// ============================================================
+
+async function moveTaskToMain(task) {
+  if (isCompleted(task.id)) {
+    showToast("完了済みのミッションは移動できないよ。先に取り消してね");
+    return;
+  }
+  try {
+    const batch = writeBatch(db);
+    const newRef = doc(mainTasksRef(currentUser.uid));
+    batch.set(newRef, {
+      name: task.name,
+      rewardPt: task.rewardPt,
+      type: task.type === "counter" ? "counter" : "simple",
+      targetCount: task.type === "counter" ? task.targetCount : null,
+      subtasks: taskSubtasks(task).map((s) => ({ id: s.id, name: s.name, done: false })),
+      dueDate: task.dueDate ?? null, // デイリー側で保持していた期限を復元（仕様書 6）
+      currentCount: 0,
+      completed: false,
+      order: nextOrder(mainTasks),
+      createdAt: serverTimestamp(),
+    });
+    batch.delete(doc(db, "users", currentUser.uid, "tasks", task.id));
+    await batch.commit();
+    if (editingTaskId === task.id) cancelEdit();
+    showToast(`「${task.name}」をメインへ移動したよ🏆`);
+  } catch (err) {
+    console.error("メインへの移動に失敗:", err);
+    showToast("移動に失敗したよ…もう一度試してね");
+  }
+}
+
+async function moveMainToDaily(task) {
+  if (task.completed) {
+    showToast("完了済みのミッションは移動できないよ。先に取り消してね");
+    return;
+  }
+  try {
+    const batch = writeBatch(db);
+    const newRef = doc(tasksRef(currentUser.uid));
+    batch.set(newRef, {
+      name: task.name,
+      rewardPt: task.rewardPt,
+      type: task.type === "counter" ? "counter" : "simple",
+      targetCount: task.type === "counter" ? task.targetCount : null,
+      subtasks: taskSubtasks(task).map((s) => ({ id: s.id, name: s.name })),
+      dueDate: task.dueDate ?? null, // デイリーでは非表示だが保持（メインに戻すと復元される）
+      order: nextOrder(tasks),
+      createdAt: serverTimestamp(),
+    });
+    batch.delete(mainTaskRef(task.id));
+    await batch.commit();
+    if (editingMainId === task.id) cancelMainEdit();
+    showToast(`「${task.name}」をデイリーへ移動したよ📋`);
+  } catch (err) {
+    console.error("デイリーへの移動に失敗:", err);
+    showToast("移動に失敗したよ…もう一度試してね");
+  }
+}
+
+// ============================================================
 // プリセット（よく使うミッションのひな形）
 // ============================================================
 
@@ -881,9 +1246,17 @@ $("preset-save-btn").addEventListener("click", async () => {
     return;
   }
 
+  // 期限：「追加日から〇日後」方式。無期限は null
+  const dueMode = selectedType("preset-due-mode");
+  const dueInDays = dueMode === "days" ? Number($("preset-due-days-input").value) : null;
+  if (dueMode === "days" && !(Number.isInteger(dueInDays) && dueInDays >= 1 && dueInDays <= 3650)) {
+    showPresetFormError("期限の日数は1〜3650の整数で設定してね");
+    return;
+  }
+
   // サブタスクは simple のみ。名前が空の行は除外
   const subtasks = type === "simple" ? presetSubtaskEditor.get() : [];
-  const presetData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null, subtasks };
+  const presetData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null, subtasks, dueInDays };
 
   try {
     if (editingPresetId) {
@@ -916,6 +1289,9 @@ function startPresetEdit(preset) {
   $("preset-pt-select").value = String(preset.rewardPt);
   setPresetFormType(preset.type === "counter" ? "counter" : "simple");
   if (preset.type === "counter") $("preset-target-input").value = String(preset.targetCount);
+  const hasDue = typeof preset.dueInDays === "number";
+  setDueMode("preset-due-mode", "preset-due-days-label", hasDue ? "days" : "none", "days");
+  if (hasDue) $("preset-due-days-input").value = String(preset.dueInDays);
   presetSubtaskEditor.set(presetSubtasks(preset));
   updatePresetSubtaskEditorVisibility();
   $("preset-save-btn").textContent = "保存";
@@ -928,6 +1304,7 @@ function cancelPresetEdit() {
   $("preset-form-title").textContent = "➕ プリセットを登録";
   $("preset-name-input").value = "";
   setPresetFormType("simple");
+  setDueMode("preset-due-mode", "preset-due-days-label", "none", "days");
   presetSubtaskEditor.clear();
   updatePresetSubtaskEditorVisibility();
   $("preset-save-btn").textContent = "登録";
@@ -969,6 +1346,30 @@ async function addPresetToDaily(preset) {
   }
 }
 
+// プリセット → メインへワンタップ追加
+// dueInDays があれば「今日 + dueInDays」で期限日を計算してセット（仕様書 2.3 / 6.2）
+async function addPresetToMain(preset) {
+  try {
+    const dueDate = typeof preset.dueInDays === "number" ? addDays(todayStr(), preset.dueInDays) : null;
+    await addDoc(mainTasksRef(currentUser.uid), {
+      name: preset.name,
+      rewardPt: preset.rewardPt,
+      type: preset.type === "counter" ? "counter" : "simple",
+      targetCount: preset.type === "counter" ? preset.targetCount : null,
+      subtasks: presetSubtasks(preset).map((s) => ({ id: newSubtaskId(), name: s.name, done: false })),
+      dueDate,
+      currentCount: 0,
+      completed: false,
+      order: nextOrder(mainTasks),
+      createdAt: serverTimestamp(),
+    });
+    showToast(`「${preset.name}」をメインに追加したよ🏆`);
+  } catch (err) {
+    console.error("メインへの追加に失敗:", err);
+    showToast("追加に失敗したよ…もう一度試してね");
+  }
+}
+
 // ============================================================
 // 描画
 // ============================================================
@@ -1003,6 +1404,13 @@ function render() {
   lastLevel = level;
 
   renderTasks(daily);
+  renderMainTasks();
+}
+
+// メイン一覧だけを安全に再描画（ドラッグ中は保留）
+function renderMainSafe() {
+  if (isDragging) { renderPendingDuringDrag = true; return; }
+  renderMainTasks();
 }
 
 // ============================================================
@@ -1227,6 +1635,10 @@ function renderTasks(daily) {
       toggleBtn.addEventListener("click", () => completeTask(task));
     }
 
+    const moveBtn = iconButton("move", "メインへ移動", "btn btn-small btn-icon btn-sq");
+    moveBtn.disabled = completed;
+    moveBtn.addEventListener("click", () => moveTaskToMain(task));
+
     const editBtn = iconButton("pen", "編集", "btn btn-small btn-icon btn-sq");
     editBtn.disabled = completed;
     editBtn.addEventListener("click", () => startEdit(task));
@@ -1235,7 +1647,7 @@ function renderTasks(daily) {
     delBtn.disabled = completed;
     delBtn.addEventListener("click", () => deleteTask(task));
 
-    actions.append(toggleBtn, editBtn, delBtn);
+    actions.append(toggleBtn, moveBtn, editBtn, delBtn);
     row.append(main, pt, actions);
     li.appendChild(row);
 
@@ -1256,6 +1668,180 @@ function renderTasks(daily) {
 
         const subName = document.createElement("span");
         subName.className = "subtask-name" + (doneMap[sub.id] ? " done" : "");
+        subName.textContent = sub.name;
+
+        label.append(checkbox, subName);
+        subLi.appendChild(label);
+        subList.appendChild(subLi);
+      }
+      li.appendChild(subList);
+    }
+
+    list.appendChild(li);
+  }
+}
+
+// メインミッション一覧の描画（進捗はタスク文書側から読む）
+function renderMainTasks() {
+  const list = $("main-list");
+  if (!list) return;
+  list.innerHTML = "";
+  $("main-empty").classList.toggle("hidden", mainTasks.length > 0);
+
+  const today = todayStr();
+
+  for (const task of mainTasks) {
+    const completed = !!task.completed;
+    const isCounter = task.type === "counter";
+    const count = task.currentCount || 0;
+
+    const subs = taskSubtasks(task);
+    const hasSubs = subs.length > 0;
+    const doneCount = subs.filter((s) => s.done).length;
+
+    const canComplete = isCounter
+      ? count >= task.targetCount
+      : (!hasSubs || doneCount === subs.length);
+
+    const li = document.createElement("li");
+    li.className = "task-item" + (completed ? " completed" : "");
+
+    const row = document.createElement("div");
+    row.className = "task-row";
+
+    row.appendChild(makeDragHandle(list, () => mainTasks, (items, from, to) => reorderItems("mainTasks", items, from, to)));
+
+    const main = document.createElement("div");
+    main.className = "task-main";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "task-title-row";
+
+    const name = document.createElement("span");
+    name.className = "task-name";
+    name.textContent = task.name;
+    titleRow.appendChild(name);
+
+    const expanded = expandedTasks.has(task.id);
+    if (hasSubs) {
+      const toggle = iconButton("chevron", expanded ? "サブタスクを閉じる" : "サブタスクを開く", "subtask-toggle" + (expanded ? " open" : ""));
+      toggle.setAttribute("aria-expanded", String(expanded));
+      toggle.addEventListener("click", () => {
+        if (expandedTasks.has(task.id)) expandedTasks.delete(task.id);
+        else expandedTasks.add(task.id);
+        renderMainSafe();
+      });
+      titleRow.appendChild(toggle);
+    }
+
+    // 期限バッジ（設定時のみ。期限切れ＝赤、残り3日以内＝黄）
+    if (task.dueDate) {
+      const due = document.createElement("span");
+      let dueClass = "due-badge";
+      if (!completed) {
+        if (task.dueDate < today) dueClass += " overdue";
+        else if (task.dueDate <= addDays(today, 3)) dueClass += " soon";
+      }
+      due.className = dueClass;
+      due.textContent = task.dueDate < today && !completed ? `期限切れ ${task.dueDate}` : `期限 ${task.dueDate}`;
+      titleRow.appendChild(due);
+    }
+
+    main.appendChild(titleRow);
+
+    if (hasSubs) {
+      const progress = document.createElement("span");
+      progress.className = "count-label subtask-progress" + (doneCount === subs.length ? " reached" : "");
+      progress.textContent = `${doneCount} / ${subs.length}`;
+      main.appendChild(progress);
+    }
+
+    if (isCounter) {
+      const counterBox = document.createElement("div");
+      counterBox.className = "counter-box";
+
+      const minusBtn = document.createElement("button");
+      minusBtn.className = "btn btn-small btn-count";
+      minusBtn.textContent = "－";
+      minusBtn.disabled = completed || count <= 0;
+      minusBtn.addEventListener("click", () => changeMainCount(task.id, -1));
+
+      const countLabel = document.createElement("span");
+      countLabel.className = "count-label" + (canComplete ? " reached" : "");
+      countLabel.textContent = `${count} / ${task.targetCount}`;
+
+      const plusBtn = document.createElement("button");
+      plusBtn.className = "btn btn-small btn-count";
+      plusBtn.textContent = "＋";
+      plusBtn.disabled = completed;
+      plusBtn.addEventListener("click", () => changeMainCount(task.id, 1));
+
+      const miniBar = document.createElement("div");
+      miniBar.className = "bar count-bar";
+      const miniFill = document.createElement("div");
+      miniFill.className = "bar-fill count-fill";
+      miniFill.style.width = `${Math.min(100, (count / task.targetCount) * 100)}%`;
+      miniBar.appendChild(miniFill);
+
+      counterBox.append(minusBtn, countLabel, plusBtn, miniBar);
+      main.appendChild(counterBox);
+    }
+
+    const pt = document.createElement("span");
+    pt.className = "task-pt";
+    pt.textContent = `+${task.rewardPt} Pt`;
+
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+
+    let toggleBtn;
+    if (completed) {
+      toggleBtn = iconButton("undo", "取り消し", "btn btn-small btn-undo btn-sq");
+      toggleBtn.addEventListener("click", () => uncompleteMainTask(task));
+    } else {
+      toggleBtn = iconButton("check", "完了", "btn btn-small btn-complete btn-sq");
+      toggleBtn.disabled = !canComplete;
+      if (!canComplete) {
+        toggleBtn.title = isCounter
+          ? `あと${task.targetCount - count}回で完了できるよ`
+          : "サブタスクを全部終わらせると完了できるよ";
+      }
+      toggleBtn.addEventListener("click", () => completeMainTask(task));
+    }
+
+    const moveBtn = iconButton("move", "デイリーへ移動", "btn btn-small btn-icon btn-sq");
+    moveBtn.disabled = completed;
+    moveBtn.addEventListener("click", () => moveMainToDaily(task));
+
+    const editBtn = iconButton("pen", "編集", "btn btn-small btn-icon btn-sq");
+    editBtn.disabled = completed;
+    editBtn.addEventListener("click", () => startMainEdit(task));
+
+    const delBtn = iconButton("x", "削除", "btn btn-small btn-icon btn-sq btn-danger-hover");
+    delBtn.disabled = completed;
+    delBtn.addEventListener("click", () => deleteMainTask(task));
+
+    actions.append(toggleBtn, moveBtn, editBtn, delBtn);
+    row.append(main, pt, actions);
+    li.appendChild(row);
+
+    // サブタスク一覧（開いているときだけ表示。done は文書側）
+    if (hasSubs && expanded) {
+      const subList = document.createElement("ul");
+      subList.className = "subtask-list";
+      for (const sub of subs) {
+        const subLi = document.createElement("li");
+        subLi.className = "subtask-item";
+
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = !!sub.done;
+        checkbox.disabled = completed;
+        checkbox.addEventListener("change", () => toggleMainSubtask(task.id, sub.id, checkbox.checked));
+
+        const subName = document.createElement("span");
+        subName.className = "subtask-name" + (sub.done ? " done" : "");
         subName.textContent = sub.name;
 
         label.append(checkbox, subName);
@@ -1292,9 +1878,10 @@ function renderPresets() {
     const subs = presetSubtasks(preset);
     const info = document.createElement("span");
     info.className = "preset-info";
-    info.textContent = isCounter
-      ? `カウンター式 ×${preset.targetCount}`
-      : (subs.length > 0 ? `1回で完了（サブタスク${subs.length}個）` : "1回で完了");
+    const typeText = isCounter ? `カウンター式 ×${preset.targetCount}` : "1回で完了";
+    const dueText = typeof preset.dueInDays === "number" ? `${preset.dueInDays}日後まで` : "無期限";
+    const subText = !isCounter && subs.length > 0 ? ` ／ サブタスク ${subs.length}件` : "";
+    info.textContent = `${typeText} ／ ${dueText}${subText}`;
     main.appendChild(info);
 
     const pt = document.createElement("span");
@@ -1304,10 +1891,17 @@ function renderPresets() {
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
-    const addBtn = document.createElement("button");
-    addBtn.className = "btn btn-small btn-complete";
-    addBtn.textContent = "デイリーに追加";
-    addBtn.addEventListener("click", () => addPresetToDaily(preset));
+    const dailyBtn = document.createElement("button");
+    dailyBtn.className = "btn btn-small btn-complete";
+    dailyBtn.textContent = "デイリーへ";
+    dailyBtn.title = "その日のデイリーミッションに追加";
+    dailyBtn.addEventListener("click", () => addPresetToDaily(preset));
+
+    const mainBtn = document.createElement("button");
+    mainBtn.className = "btn btn-small btn-main-add";
+    mainBtn.textContent = "メインへ";
+    mainBtn.title = "メインミッション（長期目標）に追加";
+    mainBtn.addEventListener("click", () => addPresetToMain(preset));
 
     const editBtn = iconButton("pen", "編集", "btn btn-small btn-icon btn-sq");
     editBtn.addEventListener("click", () => startPresetEdit(preset));
@@ -1315,7 +1909,7 @@ function renderPresets() {
     const delBtn = iconButton("x", "削除", "btn btn-small btn-icon btn-sq btn-danger-hover");
     delBtn.addEventListener("click", () => deletePreset(preset));
 
-    actions.append(addBtn, editBtn, delBtn);
+    actions.append(dailyBtn, mainBtn, editBtn, delBtn);
     li.append(main, pt, actions);
     list.appendChild(li);
   }
@@ -1348,7 +1942,7 @@ function showToast(msg) {
 // ============================================================
 
 function initPtSelect() {
-  for (const id of ["task-pt-select", "preset-pt-select"]) {
+  for (const id of ["task-pt-select", "main-pt-select", "preset-pt-select"]) {
     const select = $(id);
     select.innerHTML = "";
     for (let pt = DEFAULT_CONFIG.ptStep; pt <= DEFAULT_CONFIG.dailyPtCap; pt += DEFAULT_CONFIG.ptStep) {

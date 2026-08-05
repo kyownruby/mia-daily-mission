@@ -269,6 +269,58 @@ input:focus, select:focus { border-color: var(--accent); }
 
 .daily-bonus-msg { margin-top: 8px; font-size: 13px; color: var(--gold); }
 
+/* ===== タブ切り替え ===== */
+.tab-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 5px;
+}
+.tab-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 9px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  background: var(--accent-strong);
+  color: #fff;
+}
+
+/* ===== 期限バッジ ===== */
+.due-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.due-badge.soon { color: var(--gold); border-color: var(--gold); }
+.due-badge.overdue { color: var(--red); border-color: var(--red); }
+
+/* 期限フォーム */
+.due-editor { margin-top: 12px; }
+.due-editor .type-toggle { margin-bottom: 8px; }
+
+/* プリセットの「メインへ」ボタン */
+.btn-main-add {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
 /* ===== タスク一覧 ===== */
 .section-title { font-size: 16px; margin-bottom: 12px; }
 

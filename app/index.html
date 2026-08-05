@@ -123,6 +123,16 @@
         </div>
       </section>
 
+      <!-- タブ切り替え -->
+      <nav class="tab-bar" role="tablist">
+        <button id="tab-btn-daily" class="tab-btn active" data-tab="daily">デイリー</button>
+        <button id="tab-btn-main" class="tab-btn" data-tab="main">メイン</button>
+        <button id="tab-btn-preset" class="tab-btn" data-tab="preset">プリセット</button>
+      </nav>
+
+      <!-- ===== デイリータブ ===== -->
+      <div id="tab-daily" class="tab-panel">
+
       <!-- タスク一覧 -->
       <section class="card">
         <h2 class="section-title">📋 デイリーミッション</h2>
@@ -167,6 +177,75 @@
         <p id="form-error" class="auth-error hidden"></p>
       </section>
 
+      </div><!-- /tab-daily -->
+
+      <!-- ===== メインタブ（長期目標） ===== -->
+      <div id="tab-main" class="tab-panel hidden">
+
+      <section class="card">
+        <h2 class="section-title">🏆 メインミッション</h2>
+        <ul id="main-list" class="task-list"></ul>
+        <p id="main-empty" class="task-empty hidden">長期目標をメインミッションとして登録してみよう！日をまたいでもリセットされないよ。</p>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title" id="main-form-title">➕ メインミッションを追加</h2>
+        <div class="type-toggle">
+          <label class="type-option">
+            <input type="radio" name="main-type" value="simple" checked>
+            <span>1回で完了</span>
+          </label>
+          <label class="type-option">
+            <input type="radio" name="main-type" value="counter">
+            <span>カウンター式（○○をn回）</span>
+          </label>
+        </div>
+        <div class="task-form">
+          <input type="text" id="main-name-input" placeholder="タスク名（例：アプリを完成させる）" maxlength="50">
+          <select id="main-pt-select"></select>
+          <label id="main-target-label" class="target-label hidden">
+            目標回数
+            <input type="number" id="main-target-input" min="1" max="999" step="1" value="10">
+          </label>
+          <div class="form-buttons">
+            <button id="main-save-btn" class="btn btn-primary">追加</button>
+            <button id="main-cancel-btn" class="btn btn-ghost hidden">キャンセル</button>
+          </div>
+        </div>
+        <!-- 期限 -->
+        <div class="due-editor">
+          <div class="type-toggle">
+            <label class="type-option">
+              <input type="radio" name="main-due-mode" value="none" checked>
+              <span>無期限</span>
+            </label>
+            <label class="type-option">
+              <input type="radio" name="main-due-mode" value="date">
+              <span>期限を設定する</span>
+            </label>
+          </div>
+          <label id="main-due-date-label" class="target-label hidden">
+            期限日
+            <input type="date" id="main-due-input">
+          </label>
+        </div>
+        <!-- サブタスク編集（1回完了式のときのみ表示） -->
+        <div id="main-subtask-editor" class="subtask-editor">
+          <p class="subtask-editor-label">サブタスク（任意）：全部チェックすると完了ボタンが押せるようになるよ</p>
+          <ul id="main-subtask-edit-list" class="subtask-edit-list"></ul>
+          <div class="subtask-add-row">
+            <input type="text" id="main-subtask-name-input" placeholder="サブタスク名（例：仕様を固める）" maxlength="50">
+            <button id="main-subtask-add-btn" class="btn btn-small btn-ghost">サブタスクを追加</button>
+          </div>
+        </div>
+        <p id="main-form-error" class="auth-error hidden"></p>
+      </section>
+
+      </div><!-- /tab-main -->
+
+      <!-- ===== プリセットタブ ===== -->
+      <div id="tab-preset" class="tab-panel hidden">
+
       <!-- プリセット -->
       <section class="card">
         <h2 class="section-title">⭐ プリセット</h2>
@@ -197,9 +276,27 @@
             <button id="preset-cancel-btn" class="btn btn-ghost hidden">キャンセル</button>
           </div>
         </div>
+        <!-- 期限（追加日から〇日後） -->
+        <div class="due-editor">
+          <div class="type-toggle">
+            <label class="type-option">
+              <input type="radio" name="preset-due-mode" value="none" checked>
+              <span>無期限</span>
+            </label>
+            <label class="type-option">
+              <input type="radio" name="preset-due-mode" value="days">
+              <span>追加日から〇日後</span>
+            </label>
+          </div>
+          <label id="preset-due-days-label" class="target-label hidden">
+            日数
+            <input type="number" id="preset-due-days-input" min="1" max="3650" step="1" value="30">
+          </label>
+          <p class="subtask-editor-label">※期限は「メインへ」追加したときに、その日を起点に計算されるよ</p>
+        </div>
         <!-- サブタスク編集（1回完了式のときのみ表示） -->
         <div id="preset-subtask-editor" class="subtask-editor">
-          <p class="subtask-editor-label">サブタスク（任意）：デイリーに追加したときに構成がコピーされるよ</p>
+          <p class="subtask-editor-label">サブタスク（任意）：追加したときに構成がコピーされるよ</p>
           <ul id="preset-subtask-edit-list" class="subtask-edit-list"></ul>
           <div class="subtask-add-row">
             <input type="text" id="preset-subtask-name-input" placeholder="サブタスク名（例：新機能追加）" maxlength="50">
@@ -208,6 +305,8 @@
         </div>
         <p id="preset-form-error" class="auth-error hidden"></p>
       </section>
+
+      </div><!-- /tab-preset -->
     </main>
   </div>
 

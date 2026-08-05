@@ -1568,17 +1568,15 @@ function renderTasks(daily) {
         render();
       });
       titleRow.appendChild(toggle);
-    }
 
-    main.appendChild(titleRow);
-
-    // 閉じたままでも進捗が分かる表示（例：1 / 3）
-    if (hasSubs) {
+      // 閉じたままでも進捗が分かる表示（例：1 / 3）。開閉トグルの右隣に置く
       const progress = document.createElement("span");
       progress.className = "count-label subtask-progress" + (doneCount === subs.length ? " reached" : "");
       progress.textContent = `${doneCount} / ${subs.length}`;
-      main.appendChild(progress);
+      titleRow.appendChild(progress);
     }
+
+    main.appendChild(titleRow);
 
     // カウンター式：－ / 現在 / 目標 / ＋ とミニ進捗バー
     if (isCounter) {
@@ -1732,20 +1730,19 @@ function renderMainTasks() {
         renderMainSafe();
       });
       titleRow.appendChild(toggle);
+
+      // 進捗（0/2）は開閉トグルの右隣に置く
+      const progress = document.createElement("span");
+      progress.className = "count-label subtask-progress" + (doneCount === subs.length ? " reached" : "");
+      progress.textContent = `${doneCount} / ${subs.length}`;
+      titleRow.appendChild(progress);
     }
 
     main.appendChild(titleRow);
 
-    // 2行目：進捗（0/2）と期限バッジを横並びで置く
+    // 2行目：期限バッジ
     const metaRow = document.createElement("div");
     metaRow.className = "task-meta-row";
-
-    if (hasSubs) {
-      const progress = document.createElement("span");
-      progress.className = "count-label subtask-progress" + (doneCount === subs.length ? " reached" : "");
-      progress.textContent = `${doneCount} / ${subs.length}`;
-      metaRow.appendChild(progress);
-    }
 
     // 期限バッジ（設定時のみ。期限切れ＝赤、残り3日以内＝黄）
     if (task.dueDate) {

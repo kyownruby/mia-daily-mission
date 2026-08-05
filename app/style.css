@@ -361,14 +361,17 @@ input:focus, select:focus { border-color: var(--accent); }
 
 .task-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
-/* ミッション名の隣に開閉トグルを添える1行目 */
+/* ミッション名の隣に開閉トグル・進捗を添える1行目
+   名前が長いときは名前側を折り返し、トグルと進捗は隣に残す（折り返して離れないように） */
 .task-title-row {
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: wrap;
 }
-.task-name { font-size: 15px; word-break: break-all; }
+.task-name { font-size: 15px; word-break: break-all; min-width: 0; }
+/* トグル・進捗は縮めない */
+.task-title-row .subtask-toggle,
+.task-title-row .subtask-progress { flex-shrink: 0; }
 
 /* ===== カウンター式ミッション ===== */
 .counter-box {
@@ -486,8 +489,8 @@ input:focus, select:focus { border-color: var(--accent); }
 .subtask-toggle.open { transform: rotate(90deg); }
 .subtask-toggle:hover { color: var(--text); }
 
-/* ミッション名の下に積むので、count-label の中央寄せ(横並び用)を左寄せに上書き */
-.subtask-progress { font-size: 12px; text-align: left; min-width: 0; align-self: flex-start; }
+/* タイトル行に並べるので、count-label の固定幅・中央寄せ(カウンター用)を解除 */
+.subtask-progress { font-size: 12px; text-align: left; min-width: 0; }
 
 .subtask-list {
   list-style: none;

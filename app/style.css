@@ -499,7 +499,13 @@ input:focus, select:focus { border-color: var(--accent); }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 2px 0 2px 34px;
+  padding: 2px 0 2px 20px;
+}
+/* ハンドル＋チェックボックスの行 */
+.subtask-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .subtask-item label {
   display: flex;
@@ -508,6 +514,19 @@ input:focus, select:focus { border-color: var(--accent); }
   font-size: 14px;
   cursor: pointer;
 }
+/* サブタスクのハンドルは少し小さめに */
+.subtask-list .drag-handle svg,
+.subtask-edit-item .drag-handle svg { width: 14px; height: 14px; }
+/* 掴んでいるサブタスク行 */
+.subtask-item.dragging,
+.subtask-edit-item.dragging {
+  opacity: 0.9;
+  position: relative;
+  z-index: 5;
+  cursor: grabbing;
+}
+.subtask-list.sorting,
+.subtask-edit-list.sorting { user-select: none; }
 .subtask-item input[type="checkbox"] {
   width: 16px;
   height: 16px;

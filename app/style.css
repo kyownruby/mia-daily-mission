@@ -544,6 +544,8 @@ input:focus, select:focus { border-color: var(--accent); }
   color: var(--text-dim);
 }
 .target-label input { width: 80px; }
+/* 日付入力は年月日＋カレンダーアイコンが収まる幅を確保（80pxだと見切れる） */
+.target-label input[type="date"] { width: auto; min-width: 165px; }
 .form-buttons { display: flex; gap: 8px; }
 
 /* ===== レベルアップ演出 ===== */

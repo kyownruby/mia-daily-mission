@@ -329,6 +329,16 @@ input:focus, select:focus { border-color: var(--accent); }
   color: var(--accent);
 }
 
+/* セクション見出し＋右側のアクションボタン */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.section-header .section-title { margin-bottom: 0; }
+
 /* ===== タスク一覧 ===== */
 .section-title { font-size: 16px; margin-bottom: 12px; }
 

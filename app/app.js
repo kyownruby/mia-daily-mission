@@ -1087,6 +1087,29 @@ async function toggleMainSubtask(taskId, subId, checked) {
   }
 }
 
+// 期限の早い順（期限なしは末尾）で一覧をまとめて並べ直す。
+// 追加・移動時の自動挿入は新しく入るものだけが対象なので、
+// それ以前からある並びを整えたいときはこれを使う
+async function sortMainByDue() {
+  if (mainTasks.length < 2) return;
+  const key = (d) => d || "9999-12-31";
+  // sort は安定なので、同じ期限どうしは今の並びが保たれる
+  const sorted = [...mainTasks].sort((a, b) => {
+    const ka = key(a.dueDate), kb = key(b.dueDate);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+  try {
+    const batch = writeBatch(db);
+    sorted.forEach((t, i) => batch.update(mainTaskRef(t.id), { order: (i + 1) * ORDER_STEP }));
+    await batch.commit();
+    showToast("期限が早い順に並べ直したよ📅");
+  } catch (err) {
+    console.error("期限順の並べ替えに失敗:", err);
+    showToast("並べ替えに失敗したよ…もう一度試してね");
+  }
+}
+$("main-sort-btn").addEventListener("click", sortMainByDue);
+
 async function deleteMainTask(task) {
   if (task.completed) {
     showToast("完了済みのミッションは削除できないよ。先に取り消してね");

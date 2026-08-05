@@ -797,7 +797,14 @@ function makeSubtaskEditor(prefix) {
         render(); // ダイアログなしで即削除
       });
 
-      li.append(input, delBtn);
+      // ハンドルで並び替え（保存されるのはフォームを保存したとき）
+      const handle = makeDragHandle(listEl, () => items, (_arr, from, to) => {
+        const [moved] = items.splice(from, 1);
+        items.splice(Math.max(0, Math.min(to, items.length)), 0, moved);
+        render();
+      });
+
+      li.append(handle, input, delBtn);
       listEl.appendChild(li);
     });
   }
@@ -935,6 +942,21 @@ async function reorderItems(colName, items, fromIndex, toIndex) {
     await batch.commit();
   } catch (err) {
     console.error("並び替えの保存に失敗:", err);
+    showToast("並び替えの保存に失敗したよ…もう一度試してね");
+  }
+}
+
+// サブタスクの並び替えを保存する。
+// subtasks 配列の並びがそのまま表示順なので、並べ替えた配列を書き戻すだけでよい
+// （done や id は要素ごと動くので、チェック状態もついてくる）
+async function reorderSubtasks(colName, taskId, subtasks, fromIndex, toIndex) {
+  const arr = [...subtasks];
+  const [moved] = arr.splice(fromIndex, 1);
+  arr.splice(Math.max(0, Math.min(toIndex, arr.length)), 0, moved);
+  try {
+    await updateDoc(doc(db, "users", currentUser.uid, colName, taskId), { subtasks: arr });
+  } catch (err) {
+    console.error("サブタスクの並び替えに失敗:", err);
     showToast("並び替えの保存に失敗したよ…もう一度試してね");
   }
 }
@@ -1692,6 +1714,8 @@ function renderTasks(daily) {
         subName.textContent = sub.name;
 
         label.append(checkbox, subName);
+        subLi.appendChild(makeDragHandle(subList, () => subs,
+          (items, from, to) => reorderSubtasks("tasks", task.id, items, from, to)));
         subLi.appendChild(label);
         subList.appendChild(subLi);
       }
@@ -1871,6 +1895,8 @@ function renderMainTasks() {
         subName.textContent = sub.name;
 
         label.append(checkbox, subName);
+        subLi.appendChild(makeDragHandle(subList, () => subs,
+          (items, from, to) => reorderSubtasks("mainTasks", task.id, items, from, to)));
         subLi.appendChild(label);
         subList.appendChild(subLi);
       }

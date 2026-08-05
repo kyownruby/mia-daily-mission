@@ -372,6 +372,8 @@ input:focus, select:focus { border-color: var(--accent); }
 /* トグル・進捗は縮めない */
 .task-title-row .subtask-toggle,
 .task-title-row .subtask-progress { flex-shrink: 0; }
+/* 名前とくっつかないよう少し余白を足す */
+.task-title-row .subtask-progress { margin-left: 4px; }
 
 /* ===== カウンター式ミッション ===== */
 .counter-box {

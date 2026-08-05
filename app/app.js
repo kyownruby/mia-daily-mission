@@ -1567,13 +1567,13 @@ function renderTasks(daily) {
         else expandedTasks.add(task.id);
         render();
       });
-      titleRow.appendChild(toggle);
-
-      // 閉じたままでも進捗が分かる表示（例：1 / 3）。開閉トグルの右隣に置く
+      // 閉じたままでも進捗が分かる表示（例：1 / 3）。名前の右・トグルの左に置く
       const progress = document.createElement("span");
       progress.className = "count-label subtask-progress" + (doneCount === subs.length ? " reached" : "");
       progress.textContent = `${doneCount} / ${subs.length}`;
       titleRow.appendChild(progress);
+
+      titleRow.appendChild(toggle);
     }
 
     main.appendChild(titleRow);
@@ -1729,13 +1729,13 @@ function renderMainTasks() {
         else expandedTasks.add(task.id);
         renderMainSafe();
       });
-      titleRow.appendChild(toggle);
-
-      // 進捗（0/2）は開閉トグルの右隣に置く
+      // 進捗（0/2）は名前の右・開閉トグルの左に置く
       const progress = document.createElement("span");
       progress.className = "count-label subtask-progress" + (doneCount === subs.length ? " reached" : "");
       progress.textContent = `${doneCount} / ${subs.length}`;
       titleRow.appendChild(progress);
+
+      titleRow.appendChild(toggle);
     }
 
     main.appendChild(titleRow);

@@ -1734,6 +1734,19 @@ function renderMainTasks() {
       titleRow.appendChild(toggle);
     }
 
+    main.appendChild(titleRow);
+
+    // 2行目：進捗（0/2）と期限バッジを横並びで置く
+    const metaRow = document.createElement("div");
+    metaRow.className = "task-meta-row";
+
+    if (hasSubs) {
+      const progress = document.createElement("span");
+      progress.className = "count-label subtask-progress" + (doneCount === subs.length ? " reached" : "");
+      progress.textContent = `${doneCount} / ${subs.length}`;
+      metaRow.appendChild(progress);
+    }
+
     // 期限バッジ（設定時のみ。期限切れ＝赤、残り3日以内＝黄）
     if (task.dueDate) {
       const due = document.createElement("span");
@@ -1744,17 +1757,10 @@ function renderMainTasks() {
       }
       due.className = dueClass;
       due.textContent = task.dueDate < today && !completed ? `期限切れ ${task.dueDate}` : `期限 ${task.dueDate}`;
-      titleRow.appendChild(due);
+      metaRow.appendChild(due);
     }
 
-    main.appendChild(titleRow);
-
-    if (hasSubs) {
-      const progress = document.createElement("span");
-      progress.className = "count-label subtask-progress" + (doneCount === subs.length ? " reached" : "");
-      progress.textContent = `${doneCount} / ${subs.length}`;
-      main.appendChild(progress);
-    }
+    if (metaRow.childElementCount > 0) main.appendChild(metaRow);
 
     if (isCounter) {
       const counterBox = document.createElement("div");

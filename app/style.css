@@ -297,6 +297,14 @@ input:focus, select:focus { border-color: var(--accent); }
   color: #fff;
 }
 
+/* 進捗（0/2）と期限バッジを横並びにする行 */
+.task-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* ===== 期限バッジ ===== */
 .due-badge {
   font-size: 11px;

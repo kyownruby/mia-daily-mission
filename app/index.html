@@ -91,6 +91,7 @@
     </header>
 
     <main class="container">
+      <div class="layout-main">
       <!-- ステータスエリア -->
       <section class="card status-card">
         <div class="level-row">
@@ -320,6 +321,19 @@
       </section>
 
       </div><!-- /tab-preset -->
+      </div><!-- /layout-main -->
+
+      <!-- ===== メモエリア（付箋）：タブの外側なので常に表示 ===== -->
+      <aside class="layout-side">
+        <section class="card notes-card">
+          <div class="section-header">
+            <h2 class="section-title">📝 メモ</h2>
+            <button id="note-add-btn" class="btn btn-small btn-ghost">＋ メモを追加</button>
+          </div>
+          <ul id="note-list" class="note-list"></ul>
+          <p id="note-empty" class="task-empty hidden">メモはまだないよ。思いついたことを書き留めてね！</p>
+        </section>
+      </aside>
     </main>
   </div>
 

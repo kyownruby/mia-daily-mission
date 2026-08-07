@@ -44,6 +44,38 @@ body {
   padding: 16px;
 }
 
+/* ===== 2カラムレイアウト（左：ミッション／右：メモ） ===== */
+/* ログイン後の container だけ2カラム化。左カラムは従来の640px幅を維持する */
+#app-view .container {
+  max-width: 952px; /* 640(左) + 16(gap) + 280(右) + 16(padding両側は含まず調整) */
+  display: grid;
+  grid-template-columns: minmax(0, 640px) 280px;
+  gap: 16px;
+  align-items: start;
+  justify-content: center;
+}
+.layout-main { min-width: 0; }
+.layout-side {
+  /* スクロールしてもメモが見えるように追従。伸びすぎたらメモ側だけスクロール */
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+/* 狭い画面では1カラムに戻し、メモをミッション一覧の下に回り込ませる */
+@media (max-width: 900px) {
+  #app-view .container {
+    display: block;
+    max-width: 640px;
+  }
+  .layout-side {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
 /* ===== ボタン ===== */
 .btn {
   display: inline-flex;
@@ -651,4 +683,48 @@ input:focus, select:focus { border-color: var(--accent); }
 @media (max-width: 480px) {
   .level-row { flex-direction: column; align-items: stretch; }
   .level-badge { align-self: center; }
+}
+
+/* ===== 付箋メモ ===== */
+.notes-card { margin-bottom: 0; }
+
+.note-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 付箋1枚：角丸カード＋左端のアクセントラインで「付箋らしさ」を出す */
+.note-item {
+  position: relative;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.note-text {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 10px 34px 10px 12px; /* 右は削除ボタンぶん空ける */
+  min-height: 64px;
+  overflow: hidden; /* 高さは自動で伸ばすのでスクロールバーは出さない */
+}
+.note-text::placeholder { color: var(--text-dim); }
+.note-item:focus-within { border-color: var(--accent); }
+
+.note-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
 }

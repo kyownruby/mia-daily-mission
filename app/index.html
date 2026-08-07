@@ -136,6 +136,7 @@
       <!-- タスク一覧 -->
       <section class="card">
         <h2 class="section-title">📋 デイリーミッション</h2>
+        <p class="section-note">完了したミッションは日付が変わると一覧から消えるよ。やり残しはサブタスクの進捗そのままで翌日に持ち越し！</p>
         <ul id="task-list" class="task-list"></ul>
         <p id="task-empty" class="task-empty hidden">まだミッションがないよ。下のフォームから追加してね！</p>
       </section>
@@ -224,10 +225,16 @@
               <span>期限を設定する</span>
             </label>
           </div>
-          <label id="main-due-date-label" class="target-label hidden">
-            期限日
-            <input type="date" id="main-due-input">
-          </label>
+          <div id="main-due-date-label" class="due-row hidden">
+            <label class="target-label">
+              期限日
+              <input type="date" id="main-due-input">
+            </label>
+            <label class="target-label">
+              時刻（任意）
+              <input type="time" id="main-due-time-input">
+            </label>
+          </div>
         </div>
         <!-- サブタスク編集（1回完了式のときのみ表示） -->
         <div id="main-subtask-editor" class="subtask-editor">
@@ -288,11 +295,17 @@
               <span>追加日から〇日後</span>
             </label>
           </div>
-          <label id="preset-due-days-label" class="target-label hidden">
-            日数
-            <input type="number" id="preset-due-days-input" min="1" max="3650" step="1" value="30">
-          </label>
-          <p class="subtask-editor-label">※期限は「メインへ」追加したときに、その日を起点に計算されるよ</p>
+          <div id="preset-due-days-label" class="due-row hidden">
+            <label class="target-label">
+              日数
+              <input type="number" id="preset-due-days-input" min="1" max="3650" step="1" value="30">
+            </label>
+            <label class="target-label">
+              時刻（任意）
+              <input type="time" id="preset-due-time-input">
+            </label>
+          </div>
+          <p class="subtask-editor-label">※期限は「メインへ」追加したときに、その日を起点に計算されるよ（時刻はそのまま引き継がれるよ）</p>
         </div>
         <!-- サブタスク編集（1回完了式のときのみ表示） -->
         <div id="preset-subtask-editor" class="subtask-editor">

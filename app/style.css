@@ -321,6 +321,13 @@ input:focus, select:focus { border-color: var(--accent); }
 /* 期限フォーム */
 .due-editor { margin-top: 12px; }
 .due-editor .type-toggle { margin-bottom: 8px; }
+/* 期限日（日数）と時刻を横並びにする行。狭い画面では折り返す */
+.due-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
 /* プリセットの「メインへ」ボタン */
 .btn-main-add {
@@ -341,6 +348,7 @@ input:focus, select:focus { border-color: var(--accent); }
 
 /* ===== タスク一覧 ===== */
 .section-title { font-size: 16px; margin-bottom: 12px; }
+.section-note { font-size: 12px; color: var(--text-dim); margin: -6px 0 12px; }
 
 .task-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
 
@@ -586,8 +594,9 @@ input:focus, select:focus { border-color: var(--accent); }
   color: var(--text-dim);
 }
 .target-label input { width: 80px; }
-/* 日付入力は年月日＋カレンダーアイコンが収まる幅を確保（80pxだと見切れる） */
+/* 日付・時刻入力は中身＋アイコンが収まる幅を確保（80pxだと見切れる） */
 .target-label input[type="date"] { width: auto; min-width: 165px; }
+.target-label input[type="time"] { width: auto; min-width: 120px; }
 .form-buttons { display: flex; gap: 8px; }
 
 /* ===== レベルアップ演出 ===== */

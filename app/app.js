@@ -564,7 +564,7 @@ function subscribeUserData(uid) {
     (snap) => {
       notes = sortByOrder(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       updateSyncStatus(snap.metadata.hasPendingWrites);
-      renderNotes();
+      renderNotesSafe();
     },
     (err) => console.error("メモの購読エラー:", err)
   );
@@ -1607,10 +1607,13 @@ function autoGrowNote(textarea) {
   textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
-function makeNoteEl(note) {
+function makeNoteEl(note, listEl) {
   const li = document.createElement("li");
   li.className = "note-item";
   li.dataset.id = note.id;
+
+  const handle = makeDragHandle(listEl, () => notes,
+    (items, from, to) => reorderItems("notes", items, from, to));
 
   const textarea = document.createElement("textarea");
   textarea.className = "note-text";
@@ -1626,8 +1629,15 @@ function makeNoteEl(note) {
   const delBtn = iconButton("x", "メモを削除", "btn btn-small btn-icon btn-sq btn-danger-hover note-del");
   delBtn.addEventListener("click", () => deleteNote(note.id));
 
-  li.append(textarea, delBtn);
+  li.append(handle, textarea, delBtn);
   return li;
+}
+
+// 付箋一覧の再描画。ドラッグ中は保留する
+// （掴んでいる付箋がDOM上で動いている最中に並べ直すと、元の順番に引き戻されてしまう）
+function renderNotesSafe() {
+  if (isDragging) { notesRenderPending = true; return; }
+  renderNotes();
 }
 
 // 付箋一覧の描画。
@@ -1645,7 +1655,7 @@ function renderNotes() {
   notes.forEach((note, index) => {
     let el = existing.get(note.id);
     if (!el) {
-      el = makeNoteEl(note);
+      el = makeNoteEl(note, list);
       created.push(el);
     } else {
       const textarea = el.querySelector(".note-text");
@@ -1682,6 +1692,7 @@ function renderNotes() {
 // ドラッグ中は再描画を保留する（掴んでいる要素がDOMごと作り直されるのを防ぐ）
 let isDragging = false;
 let renderPendingDuringDrag = false;
+let notesRenderPending = false; // 付箋一覧は別描画なので保留フラグも別に持つ
 
 function render() {
   if (isDragging) { renderPendingDuringDrag = true; return; }
@@ -1804,6 +1815,12 @@ function makeDragHandle(listEl, getItems, onReorder) {
       } else if (renderPendingDuringDrag) {
         renderPendingDuringDrag = false;
         render();
+      }
+      // ドラッグ中に届いていたメモの更新をここで反映する
+      // （並び替えたときも、保存後のスナップショットを待たずに見た目を確定させる）
+      if (notesRenderPending) {
+        notesRenderPending = false;
+        renderNotes();
       }
     };
 

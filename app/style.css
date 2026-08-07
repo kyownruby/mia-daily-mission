@@ -698,6 +698,8 @@ input:focus, select:focus { border-color: var(--accent); }
 /* 付箋1枚：角丸カード＋左端のアクセントラインで「付箋らしさ」を出す */
 .note-item {
   position: relative;
+  display: flex;
+  align-items: flex-start; /* 複数行になってもハンドルは上寄せで固定 */
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
@@ -705,9 +707,12 @@ input:focus, select:focus { border-color: var(--accent); }
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
 }
 
+.note-item .drag-handle { padding: 12px 2px 12px 4px; }
+
 .note-text {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
@@ -716,7 +721,7 @@ input:focus, select:focus { border-color: var(--accent); }
   font-family: inherit;
   font-size: 14px;
   line-height: 1.6;
-  padding: 10px 34px 10px 12px; /* 右は削除ボタンぶん空ける */
+  padding: 10px 34px 10px 4px; /* 右は削除ボタンぶん空ける（左はハンドルぶん） */
   min-height: 64px;
   overflow: hidden; /* 高さは自動で伸ばすのでスクロールバーは出さない */
 }
@@ -727,4 +732,17 @@ input:focus, select:focus { border-color: var(--accent); }
   position: absolute;
   top: 6px;
   right: 6px;
+}
+
+/* 掴んでいる付箋（ミッションと同じ見え方に揃える） */
+.note-item.dragging {
+  opacity: 0.9;
+  z-index: 5;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  border-color: var(--accent);
+  cursor: grabbing;
+}
+.note-list.sorting { user-select: none; }
+.note-list.sorting .note-item:not(.dragging) {
+  transition: transform 0.15s ease;
 }

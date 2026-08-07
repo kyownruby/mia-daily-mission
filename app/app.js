@@ -305,6 +305,7 @@ let userData = null;   // users/{uid} ドキュメントの内容
 let tasks = [];        // tasks サブコレクションの内容
 let mainTasks = [];    // mainTasks サブコレクションの内容（メインミッション）
 let presets = [];      // presets サブコレクションの内容
+let notes = [];        // notes サブコレクションの内容（付箋メモ）
 let lastLevel = null;  // レベルアップ演出用
 let editingTaskId = null;
 let editingMainId = null;
@@ -316,11 +317,13 @@ let unsubUserDoc = null;
 let unsubTasks = null;
 let unsubMain = null;
 let unsubPresets = null;
+let unsubNotes = null;
 
 const userRef = (uid) => doc(db, "users", uid);
 const tasksRef = (uid) => collection(db, "users", uid, "tasks");
 const mainTasksRef = (uid) => collection(db, "users", uid, "mainTasks");
 const presetsRef = (uid) => collection(db, "users", uid, "presets");
+const notesRef = (uid) => collection(db, "users", uid, "notes");
 
 // ============================================================
 // 認証
@@ -425,10 +428,12 @@ onAuthStateChanged(auth, async (user) => {
     subscribeUserData(user.uid);
   } else {
     unsubscribeAll();
+    cancelAllNoteSaves(); // ログアウト後に別ユーザーへ書き込まないよう、保存待ちを破棄
     userData = null;
     tasks = [];
     mainTasks = [];
     presets = [];
+    notes = [];
     lastLevel = null;
     expandedTasks = new Set();
     cancelEdit();
@@ -445,6 +450,7 @@ function unsubscribeAll() {
   if (unsubTasks) { unsubTasks(); unsubTasks = null; }
   if (unsubMain) { unsubMain(); unsubMain = null; }
   if (unsubPresets) { unsubPresets(); unsubPresets = null; }
+  if (unsubNotes) { unsubNotes(); unsubNotes = null; }
 }
 
 // ============================================================
@@ -549,6 +555,18 @@ function subscribeUserData(uid) {
       renderPresets();
     },
     (err) => console.error("プリセットの購読エラー:", err)
+  );
+
+  // 付箋メモ。includeMetadataChanges で「保存済み✓」インジケーターと連動させる
+  unsubNotes = onSnapshot(
+    query(notesRef(uid), orderBy("createdAt", "asc")),
+    { includeMetadataChanges: true },
+    (snap) => {
+      notes = sortByOrder(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      updateSyncStatus(snap.metadata.hasPendingWrites);
+      renderNotes();
+    },
+    (err) => console.error("メモの購読エラー:", err)
   );
 }
 
@@ -1504,6 +1522,156 @@ async function addPresetToMain(preset) {
   } catch (err) {
     console.error("メインへの追加に失敗:", err);
     showToast("追加に失敗したよ…もう一度試してね");
+  }
+}
+
+// ============================================================
+// 付箋メモ
+// - タブの外側に常時表示。daily とは別のサブコレクションなので日次リセットの対象外
+// - 入力はデバウンスで自動保存（入力が止まってから NOTE_SAVE_DEBOUNCE_MS 後）
+// ============================================================
+
+const NOTE_SAVE_DEBOUNCE_MS = 700;
+const noteSaveTimers = new Map(); // noteId → 保存待ちタイマー
+let pendingFocusNoteId = null;    // 追加直後にフォーカスしたい付箋のID
+
+const noteRef = (id) => doc(db, "users", currentUser.uid, "notes", id);
+
+// 保存待ちをすべて破棄する（ログアウト時）
+function cancelAllNoteSaves() {
+  for (const timer of noteSaveTimers.values()) clearTimeout(timer);
+  noteSaveTimers.clear();
+}
+
+async function saveNote(noteId, text) {
+  if (!currentUser) return;
+  try {
+    await updateDoc(noteRef(noteId), { text, updatedAt: serverTimestamp() });
+  } catch (err) {
+    console.error("メモの保存に失敗:", err);
+    showToast("メモの保存に失敗したよ…もう一度試してね");
+  }
+}
+
+// デバウンス保存の予約。入力中は「同期中…」表示にしておく
+function scheduleNoteSave(noteId, text) {
+  clearTimeout(noteSaveTimers.get(noteId));
+  noteSaveTimers.set(noteId, setTimeout(() => {
+    noteSaveTimers.delete(noteId);
+    saveNote(noteId, text);
+  }, NOTE_SAVE_DEBOUNCE_MS));
+  updateSyncStatus(true);
+}
+
+// 保存待ちがあれば即時保存する（フォーカスが外れたときの取りこぼし防止）
+function flushNoteSave(noteId, text) {
+  if (!noteSaveTimers.has(noteId)) return;
+  clearTimeout(noteSaveTimers.get(noteId));
+  noteSaveTimers.delete(noteId);
+  saveNote(noteId, text);
+}
+
+$("note-add-btn").addEventListener("click", async () => {
+  if (!currentUser) return;
+  // IDを先に発番してから書き込む。スナップショット（描画）が書き込み完了より
+  // 先に届いても、追加直後のフォーカスが取りこぼされないようにするため
+  const newRef = doc(notesRef(currentUser.uid));
+  pendingFocusNoteId = newRef.id;
+  try {
+    const batch = writeBatch(db);
+    batch.set(newRef, { text: "", order: nextOrder(notes), createdAt: serverTimestamp() });
+    await batch.commit();
+  } catch (err) {
+    pendingFocusNoteId = null;
+    console.error("メモの追加に失敗:", err);
+    showToast("メモの追加に失敗したよ…もう一度試してね");
+  }
+});
+
+async function deleteNote(noteId) {
+  // 保存待ちが残っていると削除後に書き込んで復活してしまうため、先にキャンセル
+  clearTimeout(noteSaveTimers.get(noteId));
+  noteSaveTimers.delete(noteId);
+  try {
+    await deleteDoc(noteRef(noteId));
+    showToast("メモを削除したよ");
+  } catch (err) {
+    console.error("メモの削除に失敗:", err);
+    showToast("削除に失敗したよ…もう一度試してね");
+  }
+}
+
+// テキストエリアの高さを内容に合わせて伸ばす（要素がDOMに載ってから呼ぶこと）
+function autoGrowNote(textarea) {
+  textarea.style.height = "auto";
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+function makeNoteEl(note) {
+  const li = document.createElement("li");
+  li.className = "note-item";
+  li.dataset.id = note.id;
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "note-text";
+  textarea.placeholder = "メモを入力";
+  textarea.maxLength = 2000;
+  textarea.value = note.text || "";
+  textarea.addEventListener("input", () => {
+    autoGrowNote(textarea);
+    scheduleNoteSave(note.id, textarea.value);
+  });
+  textarea.addEventListener("blur", () => flushNoteSave(note.id, textarea.value));
+
+  const delBtn = iconButton("x", "メモを削除", "btn btn-small btn-icon btn-sq btn-danger-hover note-del");
+  delBtn.addEventListener("click", () => deleteNote(note.id));
+
+  li.append(textarea, delBtn);
+  return li;
+}
+
+// 付箋一覧の描画。
+// 他の一覧と違い innerHTML で作り直さず、IDで既存DOMを使い回す差分更新にする
+// （スナップショットのたびに作り直すと、入力中のカーソルと未保存の文字が消えるため）
+function renderNotes() {
+  const list = $("note-list");
+  if (!list) return;
+  $("note-empty").classList.toggle("hidden", notes.length > 0);
+
+  const existing = new Map([...list.children].map((el) => [el.dataset.id, el]));
+  const alive = new Set();
+  const created = [];
+
+  notes.forEach((note, index) => {
+    let el = existing.get(note.id);
+    if (!el) {
+      el = makeNoteEl(note);
+      created.push(el);
+    } else {
+      const textarea = el.querySelector(".note-text");
+      // 入力中（フォーカス中）と保存待ちの間は、スナップショットで上書きしない
+      const editing = document.activeElement === textarea || noteSaveTimers.has(note.id);
+      if (!editing && textarea.value !== (note.text || "")) {
+        textarea.value = note.text || "";
+        autoGrowNote(textarea);
+      }
+    }
+    alive.add(note.id);
+    // 並び順どおりの位置へ（すでに合っていれば何もしない）
+    if (list.children[index] !== el) list.insertBefore(el, list.children[index] || null);
+  });
+
+  for (const [id, el] of existing) {
+    if (!alive.has(id)) el.remove();
+  }
+
+  // 高さ計算はDOMに載ってから
+  for (const el of created) autoGrowNote(el.querySelector(".note-text"));
+
+  if (pendingFocusNoteId && alive.has(pendingFocusNoteId)) {
+    const el = list.querySelector(`[data-id="${pendingFocusNoteId}"] .note-text`);
+    if (el) el.focus();
+    pendingFocusNoteId = null;
   }
 }
 

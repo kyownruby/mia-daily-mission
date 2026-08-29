@@ -137,8 +137,8 @@ function initialUserData(today) {
 
 // 日付をまたぐときに引き継ぐサブタスクの完了状態を返す。
 // やり残したミッションは進捗そのままで翌日へ持ち越す。
-// 前日に完了済みだったミッションは日付が変わった時点で一覧から消える（deleteFinishedTasks）ので、
-// そのぶんの進捗は残さず捨てる
+// 前日に完了済みだったミッションは、日付が変わった時点で一覧から消える
+// （ensureUserDocAndDailyReset が同じトランザクションで削除する）ので、そのぶんの進捗は残さず捨てる
 function carriedSubDone(data) {
   const prev = (data.daily && data.daily.subDone) || {};
   const completed = (data.daily && data.daily.completedTaskIds) || [];
@@ -478,38 +478,28 @@ for (const name of ["daily", "main", "preset"]) {
 async function ensureUserDocAndDailyReset(uid, { silent = false } = {}) {
   const today = todayStr();
   try {
-    let finishedTaskIds = [];
     await runTransaction(db, async (tx) => {
-      finishedTaskIds = []; // トランザクションは再実行されうるので毎回リセット
       const snap = await tx.get(userRef(uid));
       if (!snap.exists()) {
         tx.set(userRef(uid), initialUserData(today));
         return;
       }
       const data = snap.data();
-      if (!data.daily || data.daily.date !== today) {
-        finishedTaskIds = (data.daily && data.daily.completedTaskIds) || [];
-        tx.update(userRef(uid), { daily: normalizedDaily(data, today) });
-      }
+      if (data.daily && data.daily.date === today) return;
+
+      // 「dailyのリセット」と「前日に完了済みだったミッションの削除」は必ず同時に成立させる。
+      // 別々の書き込みに分けると、リセットだけ通って削除が落ちたとき
+      // （その隙間でアプリを閉じた・通信が切れた等）に
+      // 「ミッションは一覧に残っているのにサブタスクのチェックだけ消えている」状態になり、
+      // しかも daily.date が今日になっているせいで二度とリセットが走らず固定化してしまう
+      const finishedTaskIds = (data.daily && data.daily.completedTaskIds) || [];
+      tx.update(userRef(uid), { daily: normalizedDaily(data, today) });
+      // 1日の完了ミッション数がトランザクションの上限（500書き込み）に届くことはまずない
+      for (const id of finishedTaskIds) tx.delete(doc(db, "users", uid, "tasks", id));
     });
-    // 日次リセットを実際に行えた端末だけがここに来る（他端末は date === today で素通り）
-    if (finishedTaskIds.length > 0) await deleteFinishedTasks(uid, finishedTaskIds);
   } catch (err) {
     console.error("日次リセット処理に失敗:", err);
     if (!silent) showToast("データの読み込みに失敗したよ…再読み込みしてみてね");
-  }
-}
-
-// 日付が変わったタイミングで、前日に完了済みだったデイリーミッションを削除する。
-// 「やり残しは持ち越し、終わったものは消える」という日次の片付け
-// （すでに消えているIDが混ざっていても delete は成功するので気にしない）
-async function deleteFinishedTasks(uid, taskIds) {
-  try {
-    const batch = writeBatch(db);
-    for (const id of taskIds) batch.delete(doc(db, "users", uid, "tasks", id));
-    await batch.commit();
-  } catch (err) {
-    console.error("完了済みミッションの片付けに失敗:", err);
   }
 }
 
@@ -543,6 +533,7 @@ function subscribeUserData(uid) {
     query(mainTasksRef(uid), orderBy("createdAt", "asc")),
     (snap) => {
       mainTasks = sortByOrder(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      cleanupFinishedMainTasks();
       renderMainSafe();
     },
     (err) => console.error("メインミッションの購読エラー:", err)
@@ -1080,7 +1071,8 @@ async function completeMainTask(task) {
       tx.update(userRef(uid), {
         account: { ...data.account, level, totalExp: newTotalExp, mainTotalPt: newMainPt },
       });
-      tx.update(mainTaskRef(task.id), { completed: true });
+      // 完了日を記録しておく。日付が変わったらこれを見て一覧から片付ける
+      tx.update(mainTaskRef(task.id), { completed: true, completedDate: todayStr() });
     });
   } catch (err) {
     console.error("メインミッションの完了に失敗:", err);
@@ -1111,7 +1103,7 @@ async function uncompleteMainTask(task) {
       tx.update(userRef(uid), {
         account: { ...data.account, level, totalExp: newTotalExp, mainTotalPt: newMainPt },
       });
-      tx.update(mainTaskRef(task.id), { completed: false });
+      tx.update(mainTaskRef(task.id), { completed: false, completedDate: null });
     });
   } catch (err) {
     console.error("メインミッションの取り消しに失敗:", err);
@@ -1151,6 +1143,36 @@ async function toggleMainSubtask(taskId, subId, checked) {
   } catch (err) {
     console.error("メインのサブタスク更新に失敗:", err);
     showToast("サブタスクの保存に失敗したよ…もう一度試してね");
+  }
+}
+
+// 日付が変わったら、クリア済みのメインミッションを一覧から片付ける。
+// - 獲得ぶんの Pt・EXP・レベル（account）には一切触らないので、経験値は入ったまま残る
+// - スナップショットのたびに呼ばれる前提の「その都度やり直せる」処理にしてあるので、
+//   途中で失敗しても次のスナップショットで再実行される（アトミック性に頼らない）
+let cleaningMainTasks = false;
+
+async function cleanupFinishedMainTasks() {
+  if (!currentUser || cleaningMainTasks) return;
+  const today = todayStr();
+
+  // 今日より前にクリアしたもの＝片付け対象
+  const stale = mainTasks.filter((t) => t.completed && t.completedDate && t.completedDate !== today);
+  // completedDate が無いのは、この機能より前に完了したミッション。
+  // いつクリアしたか分からないので今日として記録し、次に日付が変わったときに片付ける
+  const needsDate = mainTasks.filter((t) => t.completed && !t.completedDate);
+  if (stale.length === 0 && needsDate.length === 0) return;
+
+  cleaningMainTasks = true;
+  try {
+    const batch = writeBatch(db);
+    for (const t of stale) batch.delete(mainTaskRef(t.id));
+    for (const t of needsDate) batch.update(mainTaskRef(t.id), { completedDate: today });
+    await batch.commit();
+  } catch (err) {
+    console.error("クリア済みメインミッションの片付けに失敗:", err);
+  } finally {
+    cleaningMainTasks = false;
   }
 }
 
@@ -2299,6 +2321,7 @@ document.addEventListener("visibilitychange", () => {
 
 // 開きっぱなしのときの定期チェック（1分ごと）
 // - 日付をまたいだら日次リセット（完了済みミッションの片付け）を走らせる
+// - クリア済みメインミッションの片付けも、開いたまま日をまたいだときのために回す
 // - 時刻つき期限の「期限切れ」表示を、操作しなくても切り替わるようにする
 // 保存済みの daily.date を見て判断するので、オフラインなどで失敗しても次の分に再挑戦できる
 setInterval(() => {
@@ -2306,6 +2329,7 @@ setInterval(() => {
   if (!userData || !userData.daily || userData.daily.date !== todayStr()) {
     ensureUserDocAndDailyReset(currentUser.uid, { silent: true });
   }
+  cleanupFinishedMainTasks();
   renderMainSafe();
 }, 60 * 1000);
 

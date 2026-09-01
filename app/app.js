@@ -1213,15 +1213,20 @@ async function addMainMission(taskData, extraOps = null) {
   await batch.commit();
 }
 
+// メインミッションの削除。クリア済みでも消せる（日またぎの自動片付けが走らなかったときの保険）。
+// account には触らないので、獲得済みのPt・EXP・レベルは減らない。
+// ただし消すと取り消し（EXPの返却）ができなくなるので、クリア済みのときだけ確認をはさむ
 async function deleteMainTask(task) {
-  if (task.completed) {
-    showToast("完了済みのミッションは削除できないよ。先に取り消してね");
+  if (task.completed &&
+      !confirm(`「${task.name}」を削除する？\n\nもらった経験値はそのまま残るよ。\nただし、あとから取り消して経験値を戻すことはできなくなるよ。`)) {
     return;
   }
   try {
     await deleteDoc(mainTaskRef(task.id));
     if (editingMainId === task.id) cancelMainEdit();
-    showToast("メインミッションを削除したよ");
+    showToast(task.completed
+      ? "メインミッションを削除したよ（経験値はそのまま残るよ）"
+      : "メインミッションを削除したよ");
   } catch (err) {
     console.error("メインミッションの削除に失敗:", err);
     showToast("削除に失敗したよ…もう一度試してね");
@@ -2170,8 +2175,10 @@ function renderMainTasks() {
     editBtn.disabled = completed;
     editBtn.addEventListener("click", () => startMainEdit(task));
 
-    const delBtn = iconButton("x", "削除", "btn btn-small btn-icon btn-sq btn-danger-hover");
-    delBtn.disabled = completed;
+    // クリア済みでも削除できる（自動の片付けが走らなかったときの保険）。
+    // 経験値は account 側にあるので、消しても減らない
+    const delBtn = iconButton("x", completed ? "削除（経験値はそのまま）" : "削除",
+      "btn btn-small btn-icon btn-sq btn-danger-hover");
     delBtn.addEventListener("click", () => deleteMainTask(task));
 
     actions.append(toggleBtn, moveBtn, editBtn, delBtn);

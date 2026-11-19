@@ -237,7 +237,7 @@ function orderForPosition(items, toIndex) {
   return mid;
 }
 
-// メインミッションを期限が早い順（期限なしは末尾）に並べたときの、
+// ミッション（メイン・デイリー共通）を期限が早い順（期限なしは末尾）に並べたときの、
 // ミッションIDごとの order を Map で返す。
 // 期限を設定・変更したタイミングで一覧全体を並べ直すのに使う
 // （同じ期限どうしは今の並びを維持：sort は安定なので入力順が保たれる）
@@ -803,7 +803,7 @@ for (const radio of document.querySelectorAll('input[name="preset-type"]')) {
   radio.addEventListener("change", updatePresetSubtaskEditorVisibility);
 }
 
-// 期限入力の表示切り替え（メイン＝日付／プリセット＝日数）
+// 期限入力の表示切り替え（デイリー・メイン＝日付／プリセット＝日数）
 function bindDueModeToggle(radioName, inputLabelId, showValue) {
   for (const radio of document.querySelectorAll(`input[name="${radioName}"]`)) {
     radio.addEventListener("change", () => {
@@ -811,6 +811,7 @@ function bindDueModeToggle(radioName, inputLabelId, showValue) {
     });
   }
 }
+bindDueModeToggle("task-due-mode", "task-due-date-label", "date");
 bindDueModeToggle("main-due-mode", "main-due-date-label", "date");
 bindDueModeToggle("preset-due-mode", "preset-due-days-label", "days");
 
@@ -889,6 +890,44 @@ const mainSubtaskEditor = makeSubtaskEditor("main-subtask");
 const presetSubtaskEditor = makeSubtaskEditor("preset-subtask");
 
 // ミッション／プリセット共通の入力チェック。OKなら null、NGならエラーメッセージを返す
+// デイリーミッション1件の参照
+function taskRef(taskId) {
+  return doc(db, "users", currentUser.uid, "tasks", taskId);
+}
+
+// 既存デイリーミッションの order を期限順に更新する差分を batch に積む（メインの stageMainDueOrders と同じ役割）。
+// skipId は同じバッチで別途まとめて更新するミッション（編集中のもの）
+function stageTaskDueOrders(batch, orders, skipId = null) {
+  for (const t of tasks) {
+    if (t.id === skipId) continue;
+    const o = orders.get(t.id);
+    if (o !== undefined && o !== t.order) batch.update(taskRef(t.id), { order: o });
+  }
+}
+
+// デイリーミッションを1件追加する（並びのルールはメインの addMainMission と同じ）。
+// - 通常：期限つきなら一覧全体を期限順に並べ直し、期限なしなら末尾に足す
+// - top: true（メインからの引っ越し）：期限つきは期限順の位置、期限なしは「期限なしグループ」の先頭に入れる
+// extraOps は同じバッチで一緒に実行したい処理（メイン側の削除など）
+async function addDailyMission(taskData, { top = false, extraOps = null } = {}) {
+  const newRef = doc(tasksRef(currentUser.uid));
+  const batch = writeBatch(db);
+  const entry = { id: newRef.id, dueDate: taskData.dueDate, dueTime: taskData.dueTime };
+
+  let order;
+  if (top || taskData.dueDate) {
+    const orders = mainDueOrders(top ? [entry, ...tasks] : [...tasks, entry]);
+    order = orders.get(newRef.id);
+    stageTaskDueOrders(batch, orders);
+  } else {
+    order = nextOrder(tasks); // 期限なしは末尾でよい
+  }
+
+  batch.set(newRef, { ...taskData, order, createdAt: serverTimestamp() });
+  if (extraOps) extraOps(batch);
+  await batch.commit();
+}
+
 function validateMissionInput(name, rewardPt, type, targetCount, config) {
   if (!name) return "タスク名を入力してね";
   if (!(rewardPt >= config.ptStep && rewardPt <= config.dailyPtCap && rewardPt % config.ptStep === 0)) {
@@ -906,16 +945,24 @@ $("task-save-btn").addEventListener("click", async () => {
   const rewardPt = Number($("task-pt-select").value);
   const type = selectedTaskType();
   const targetCount = Number($("task-target-input").value);
+  const dueMode = selectedType("task-due-mode");
+  const dueDate = dueMode === "date" ? $("task-due-input").value : null;
+  // 時刻は任意。未入力なら null（＝その日いっぱいが期限）
+  const dueTime = dueMode === "date" ? ($("task-due-time-input").value || null) : null;
 
   const errMsg = validateMissionInput(name, rewardPt, type, targetCount, getConfig());
   if (errMsg) {
     showFormError(errMsg);
     return;
   }
+  if (dueMode === "date" && !dueDate) {
+    showFormError("期限の日付を選んでね");
+    return;
+  }
 
   // サブタスクは simple のみ。名前が空の行は除外
   const subtasks = type === "simple" ? taskSubtaskEditor.get() : [];
-  const taskData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null, subtasks };
+  const taskData = { name, rewardPt, type, targetCount: type === "counter" ? targetCount : null, subtasks, dueDate, dueTime };
 
   try {
     if (editingTaskId) {
@@ -923,11 +970,24 @@ $("task-save-btn").addEventListener("click", async () => {
         showFormError("完了済みのタスクは編集できないよ。先に取り消してね");
         return;
       }
-      await updateDoc(doc(db, "users", currentUser.uid, "tasks", editingTaskId), taskData);
+      // 期限（日付・時刻）を変えたときは一覧全体を期限順に並べ直す（メインと同じ。名前だけの編集では動かさない）
+      const editing = tasks.find((t) => t.id === editingTaskId);
+      const dueChanged = editing &&
+        ((editing.dueDate ?? null) !== dueDate || (editing.dueTime ?? null) !== dueTime);
+      if (dueChanged) {
+        const merged = tasks.map((t) => (t.id === editingTaskId ? { ...t, dueDate, dueTime } : t));
+        const orders = mainDueOrders(merged);
+        const batch = writeBatch(db);
+        batch.update(taskRef(editingTaskId), { ...taskData, order: orders.get(editingTaskId) });
+        stageTaskDueOrders(batch, orders, editingTaskId);
+        await batch.commit();
+      } else {
+        await updateDoc(taskRef(editingTaskId), taskData);
+      }
       showToast("ミッションを更新したよ✏️");
       cancelEdit();
     } else {
-      await addDoc(tasksRef(currentUser.uid), { ...taskData, order: nextOrder(tasks), createdAt: serverTimestamp() });
+      await addDailyMission(taskData);
       showToast("ミッションを追加したよ！");
       $("task-name-input").value = "";
       taskSubtaskEditor.clear();
@@ -954,6 +1014,9 @@ function startEdit(task) {
   if (task.type === "counter") $("task-target-input").value = String(task.targetCount);
   taskSubtaskEditor.set(taskSubtasks(task));
   updateSubtaskEditorVisibility();
+  setDueMode("task-due-mode", "task-due-date-label", task.dueDate ? "date" : "none", "date");
+  $("task-due-input").value = task.dueDate || "";
+  $("task-due-time-input").value = task.dueTime || "";
   $("task-save-btn").textContent = "保存";
   $("task-cancel-btn").classList.remove("hidden");
   $("task-name-input").focus();
@@ -966,6 +1029,9 @@ function cancelEdit() {
   setFormType("simple");
   taskSubtaskEditor.clear();
   updateSubtaskEditorVisibility();
+  setDueMode("task-due-mode", "task-due-date-label", "none", "date");
+  $("task-due-input").value = "";
+  $("task-due-time-input").value = "";
   $("task-save-btn").textContent = "追加";
   $("task-cancel-btn").classList.add("hidden");
   $("form-error").classList.add("hidden");
@@ -1186,16 +1252,19 @@ function stageMainDueOrders(batch, orders) {
 }
 
 // メインミッションを1件追加する。
-// 期限つきなら一覧全体を期限順に並べ直し、期限なしなら末尾に足す。
+// - 通常：期限つきなら一覧全体を期限順に並べ直し、期限なしなら末尾に足す
+// - top: true（デイリーからの引っ越し）：期限つきは期限順の位置、期限なしは「期限なしグループ」の先頭に入れる
 // extraOps は同じバッチで一緒に実行したい処理（デイリーからの引っ越しでの削除など）
-async function addMainMission(taskData, extraOps = null) {
+async function addMainMission(taskData, extraOps = null, { top = false } = {}) {
   const newRef = doc(mainTasksRef(currentUser.uid));
   const batch = writeBatch(db);
+  const entry = { id: newRef.id, dueDate: taskData.dueDate, dueTime: taskData.dueTime };
 
   let order;
-  if (taskData.dueDate) {
+  if (top || taskData.dueDate) {
     // 新規ぶんも含めて期限順の order を計算し、ズレる既存ミッションだけ更新する
-    const orders = mainDueOrders([...mainTasks, { id: newRef.id, dueDate: taskData.dueDate, dueTime: taskData.dueTime }]);
+    // （sort は安定なので、top のときは先頭に置いた新規ぶんが同じ期限・期限なしどうしの中で一番上になる）
+    const orders = mainDueOrders(top ? [entry, ...mainTasks] : [...mainTasks, entry]);
     order = orders.get(newRef.id);
     stageMainDueOrders(batch, orders);
   } else {
@@ -1360,12 +1429,12 @@ async function moveTaskToMain(task) {
       type: task.type === "counter" ? "counter" : "simple",
       targetCount: task.type === "counter" ? task.targetCount : null,
       subtasks: taskSubtasks(task).map((s) => ({ id: s.id, name: s.name, done: false })),
-      // デイリー側で保持していた期限（日付・時刻）を復元（仕様書 6）
+      // 期限（日付・時刻）はそのまま引き継ぐ（仕様書 6）
       dueDate: task.dueDate ?? null,
       dueTime: task.dueTime ?? null,
     }, (batch) => {
       batch.delete(doc(db, "users", currentUser.uid, "tasks", task.id));
-    });
+    }, { top: true });
     if (editingTaskId === task.id) cancelEdit();
     showToast(`「${task.name}」をメインへ移動したよ🏆`);
   } catch (err) {
@@ -1380,22 +1449,20 @@ async function moveMainToDaily(task) {
     return;
   }
   try {
-    const batch = writeBatch(db);
-    const newRef = doc(tasksRef(currentUser.uid));
-    batch.set(newRef, {
+    // 追加とメイン側の削除を同じバッチで実行（引っ越しが途中で切れないように）
+    await addDailyMission({
       name: task.name,
       rewardPt: task.rewardPt,
       type: task.type === "counter" ? "counter" : "simple",
       targetCount: task.type === "counter" ? task.targetCount : null,
       subtasks: taskSubtasks(task).map((s) => ({ id: s.id, name: s.name })),
-      // デイリーでは非表示だが保持（メインに戻すと復元される）
+      // 期限（日付・時刻）はそのまま引き継ぐ
       dueDate: task.dueDate ?? null,
       dueTime: task.dueTime ?? null,
-      order: nextOrder(tasks),
-      createdAt: serverTimestamp(),
+    }, {
+      top: true,
+      extraOps: (batch) => batch.delete(mainTaskRef(task.id)),
     });
-    batch.delete(mainTaskRef(task.id));
-    await batch.commit();
     if (editingMainId === task.id) cancelMainEdit();
     showToast(`「${task.name}」をデイリーへ移動したよ📋`);
   } catch (err) {
@@ -1927,6 +1994,26 @@ function renderTasks(daily) {
 
     main.appendChild(titleRow);
 
+    // 2行目：期限バッジ（メインと同じ表示。設定時のみ。期限切れ＝赤、残り3日以内＝黄）
+    if (task.dueDate) {
+      const today = todayStr();
+      const metaRow = document.createElement("div");
+      metaRow.className = "task-meta-row";
+      const key = dueKey(task.dueDate, task.dueTime);
+      const overdue = !completed && key < `${today} ${nowTimeStr()}`;
+      const due = document.createElement("span");
+      let dueClass = "due-badge";
+      if (!completed) {
+        if (overdue) dueClass += " overdue";
+        else if (key <= dueKey(addDays(today, 3), null)) dueClass += " soon";
+      }
+      due.className = dueClass;
+      const dueLabel = task.dueTime ? `${task.dueDate} ${task.dueTime}` : task.dueDate;
+      due.textContent = overdue ? `期限切れ ${dueLabel}` : `期限 ${dueLabel}`;
+      metaRow.appendChild(due);
+      main.appendChild(metaRow);
+    }
+
     // カウンター式：－ / 現在 / 目標 / ＋ とミニ進捗バー
     if (isCounter) {
       const counterBox = document.createElement("div");
@@ -2337,7 +2424,7 @@ setInterval(() => {
     ensureUserDocAndDailyReset(currentUser.uid, { silent: true });
   }
   cleanupFinishedMainTasks();
-  renderMainSafe();
+  render(); // デイリー・メイン両方の期限バッジを更新（ドラッグ中は render 側で保留される）
 }, 60 * 1000);
 
 initPtSelect();

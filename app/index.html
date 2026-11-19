@@ -167,6 +167,29 @@
             <button id="task-cancel-btn" class="btn btn-ghost hidden">キャンセル</button>
           </div>
         </div>
+        <!-- 期限（メインと同じ：無期限／日付＋時刻） -->
+        <div class="due-editor">
+          <div class="type-toggle">
+            <label class="type-option">
+              <input type="radio" name="task-due-mode" value="none" checked>
+              <span>無期限</span>
+            </label>
+            <label class="type-option">
+              <input type="radio" name="task-due-mode" value="date">
+              <span>期限を設定する</span>
+            </label>
+          </div>
+          <div id="task-due-date-label" class="due-row hidden">
+            <label class="target-label">
+              期限日
+              <input type="date" id="task-due-input">
+            </label>
+            <label class="target-label">
+              時刻（任意）
+              <input type="time" id="task-due-time-input">
+            </label>
+          </div>
+        </div>
         <!-- サブタスク編集（1回完了式のときのみ表示） -->
         <div id="subtask-editor" class="subtask-editor">
           <p class="subtask-editor-label">サブタスク（任意）：全部チェックすると完了ボタンが押せるようになるよ</p>
